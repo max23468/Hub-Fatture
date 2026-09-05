@@ -117,8 +117,27 @@ test("il readback usa dettaglio e notifiche fino all’esito canonico senza regr
       [submission.rows[0]!.id, sha256],
     );
 
+    const busyRunId = "00000000-0000-4000-8000-000000000073";
+    const startInventory = () =>
+      pool.query(
+        `INSERT INTO aruba_sync_runs
+         (id, environment, api_environment, account_reference, kind, authority_mode,
+          window_start, window_end, checkpoint_start, checkpoint_end, lease_expires_at)
+       VALUES ($1, 'MOCK', 'DEMO', 'synthetic-aruba-account', 'INCREMENTAL', 'CANONICAL',
+         now() - interval '1 day', now(), now() - interval '1 day', now(),
+         now() + interval '3 minutes')`,
+        [busyRunId],
+      );
+    const finishInventory = () =>
+      pool.query(
+        "UPDATE aruba_sync_runs SET status = 'COMPLETED', completed_at = now() WHERE id = $1",
+        [busyRunId],
+      );
+    let startInventoryDuringRead = false;
+    let providerCalls = 0;
     let rateLimitNextDetail = false;
     globalThis.fetch = async (input) => {
+      providerCalls += 1;
       const url = new URL(String(input));
       if (url.pathname === "/auth/signin") {
         return response({
@@ -190,6 +209,10 @@ test("il readback usa dettaglio e notifiche fino all’esito canonico senza regr
         });
       }
       if (url.pathname === "/api/v2/invoices-out/notifications") {
+        if (startInventoryDuringRead) {
+          startInventoryDuringRead = false;
+          await startInventory();
+        }
         return response({
           count: 1,
           notifications: [
@@ -211,7 +234,67 @@ test("il readback usa dettaglio e notifiche fino all’esito canonico senza regr
       throw new Error(`Endpoint sintetico inatteso: ${url.pathname}`);
     };
 
-    const job = await claimJob("aruba-readback-worker");
+    let job = await claimJob("aruba-readback-worker");
+    await startInventory();
+    for (const payload of [
+      job!.payload,
+      { readbackKind: "targeted", lookupType: "filename", lookupValue: "synthetic.xml" },
+      {
+        readbackKind: "advanced",
+        creationStart: "2026-08-10T00:00:00Z",
+        creationEnd: "2026-08-11T00:00:00Z",
+      },
+    ]) {
+      const waiting = await runArubaApiReadbackJob({ ...job!, payload });
+      assert.equal(waiting.continuationPending, true);
+      assert.equal(waiting.continuationDelayMs, 5_000);
+    }
+    assert.equal(providerCalls, 0);
+    assert.equal(
+      (await pool.query("SELECT count(*)::integer AS count FROM aruba_submission_attempts")).rows[0]
+        .count,
+      1,
+    );
+    await pool.query("DELETE FROM aruba_sync_runs WHERE id = $1", [busyRunId]);
+
+    startInventoryDuringRead = true;
+    const deferred = await runArubaApiReadbackJob(job!);
+    assert.equal(deferred.continuationPending, true);
+    assert.equal(deferred.continuationDelayMs, 5_000);
+    assert.equal(await yieldJob(job!, deferred, Number(deferred.continuationDelayMs)), true);
+    assert.deepEqual(
+      (
+        await pool.query("SELECT status, attempts, last_error_code FROM jobs WHERE id = $1", [
+          job!.id,
+        ])
+      ).rows[0],
+      { status: "PENDING", attempts: 0, last_error_code: null },
+    );
+    assert.deepEqual(
+      (await pool.query("SELECT status, last_error_code FROM connections WHERE provider = 'ARUBA'"))
+        .rows[0],
+      { status: "CONNECTED", last_error_code: null },
+    );
+    assert.equal(
+      (
+        await pool.query("SELECT status FROM aruba_submissions WHERE id = $1", [
+          submission.rows[0]!.id,
+        ])
+      ).rows[0].status,
+      "ARUBA_ACCEPTED",
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT status, error_code, completed_at IS NOT NULL AS completed
+       FROM aruba_submission_attempts ORDER BY attempt_number DESC LIMIT 1`,
+        )
+      ).rows[0],
+      { status: "CANCELLED", error_code: null, completed: true },
+    );
+    await finishInventory();
+    await pool.query("UPDATE jobs SET run_at = now() WHERE id = $1", [job!.id]);
+    job = await claimJob("aruba-readback-worker");
     assert.equal(job?.type, "aruba_readback_submission");
     const result = await runArubaApiReadbackJob(job!);
     assert.ok("status" in result && "terminal" in result);

@@ -27,6 +27,7 @@ import {
   refreshConfiguredArubaApiAfterUnauthorized,
 } from "./aruba-api-connection.server.ts";
 import { reconcileArubaApiOutboundReadback } from "./aruba-api-inbound.server.ts";
+import { connectionEnvironment, inventoryEnvironment } from "./aruba-api-context.server.ts";
 import { scheduleArubaEmissionEffects } from "./aruba-emission-effects.server.ts";
 import { requeueAuthoritativelyRejectedInvoice } from "./rejected-invoice-requeue.server.ts";
 import {
@@ -196,7 +197,17 @@ async function runSubmissionReadback(job: ClaimedJob, submissionId: string) {
       readArubaApiNotifications(session, detail.id),
     );
     const reconciled = await reconcileArubaApiOutboundReadback(detail, notifications);
-    if (!reconciled) throw new AppError("CONFLICT_REVISION", 409);
+    if (!reconciled) {
+      await withTransaction(async (client) => {
+        await assertJobLease(client, job);
+        await client.query(
+          `UPDATE aruba_submission_attempts SET status = 'CANCELLED', completed_at = now()
+           WHERE id = $1 AND status = 'RUNNING'`,
+          [context.attemptId],
+        );
+      });
+      return { continuationPending: true, continuationDelayMs: 5_000 };
+    }
     if (detail.invoices.length !== 1) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     const detailStatus = normalizeArubaRemoteStatusLabel(detail.invoices[0]!.status);
     const canonicalStatus = await getPool().query<{ remote_status: ArubaReadbackStatus }>(
@@ -459,6 +470,14 @@ export async function runArubaApiReadbackJob(job: ClaimedJob) {
   }
   const payload = arubaReadbackJobPayloadSchema.safeParse(job.payload);
   if (!payload.success) throw new AppError("ARUBA_BATCH_INVALID", 422);
+  const active = await getPool().query(
+    `SELECT 1 FROM aruba_sync_runs AS runs
+     JOIN connections ON connections.provider = 'ARUBA'
+       AND connections.environment = $1 AND connections.account_reference = runs.account_reference
+     WHERE runs.environment = $2 AND runs.status = 'RUNNING' LIMIT 1`,
+    [connectionEnvironment(), inventoryEnvironment()],
+  );
+  if (active.rows[0]) return { continuationPending: true, continuationDelayMs: 5_000 };
   if (payload.data.readbackKind === "submission") {
     return runSubmissionReadback(job, payload.data.submissionId);
   }
