@@ -367,6 +367,54 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
     assert.equal(unknownAudits.rows[0]!.count, 3);
     assert.equal(sendCalls, 7);
 
+    const collisionBatch = await createBatch(["ORDINECONFLITTO"], 1012);
+    await pool.query(
+      `INSERT INTO orders (provider, external_account_id, external_order_id, display_number,
+           created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+           raw_snapshot_json, normalized_snapshot_json)
+         SELECT 'SHOPIFY', 'send-collision', 'conflict-order', '#CONFLICT', now(), now(),
+           '2026-09-03', 'EUR', 10000, 'PAID', 'FULFILLED', 'INVOICED',
+           billing_cases.customer_id, billing_cases.id, '{}', '{}'
+         FROM documents JOIN billing_cases ON billing_cases.id = documents.billing_case_id
+         WHERE documents.id = $1`,
+      [collisionBatch.documents[0]!.id],
+    );
+    await pool.query(
+      `INSERT INTO aruba_remote_documents
+         (environment, account_reference, remote_id, document_type, fiscal_year, series,
+          fiscal_number, document_date, total_amount, remote_status,
+          remote_status_observed_at, metadata_digest)
+       SELECT environment, account_reference, 'second-fiscal-number', document_type,
+         fiscal_year, series, fiscal_number, document_date, total_amount, 'SUBMITTED',
+         now(), repeat('f', 64) FROM aruba_remote_documents
+       WHERE remote_id = 'existing-fiscal-number';
+       INSERT INTO aruba_deduplication_conflicts
+         (environment, account_reference, existing_remote_document_id, incoming_remote_id,
+          collision_key, incoming_payload_digest, sync_run_id)
+       SELECT environment, account_reference, id, 'second-fiscal-number',
+         'FISCAL_IDENTITY', repeat('f', 64), '00000000-0000-4000-8000-000000000070'
+       FROM aruba_remote_documents
+       WHERE remote_id = 'existing-fiscal-number';
+       INSERT INTO aruba_document_matches
+         (remote_document_id, status, method, matcher_version, signals_json, candidates_json)
+       SELECT remote.id, 'UNKNOWN_REMOTE_STATE', 'NONE', 1,
+         '{"providerIdentityCollision":true,"identityCollisionCandidatesVerified":true}',
+         (SELECT jsonb_agg(jsonb_build_object('candidateId', orders.id::text,
+           'compatible', true)) FROM orders WHERE external_order_id = 'conflict-order')
+       FROM aruba_remote_documents remote
+       WHERE remote.remote_id IN ('existing-fiscal-number', 'second-fiscal-number')`,
+    );
+    const callsBeforeOrderCollision = sendCalls;
+    assert.equal(
+      (await completeNext("aruba_send_submission")).errorCode,
+      "ARUBA_SEND_NOT_AUTHORIZED",
+    );
+    assert.equal(sendCalls, callsBeforeOrderCollision);
+    await createBatch(["ESTRANEO"], 1013);
+    assert.equal((await completeNext("aruba_send_submission")).accepted, true);
+    assert.equal(sendCalls, callsBeforeOrderCollision + 1);
+
     connection.invalidateConfiguredArubaApiSession();
     await closePool();
   } finally {

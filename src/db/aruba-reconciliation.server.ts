@@ -296,6 +296,36 @@ export async function reconcileRemoteDocument(
   remote: RemoteInventoryDocument,
   official = false,
 ) {
+  const previous = await client.query<{
+    method: string;
+    signals_json: Record<string, unknown>;
+    status: string;
+    billing_case_id: string | null;
+    candidates_json: Array<{
+      candidateId?: string;
+      orderIds?: string[];
+      potential?: boolean;
+      compatible?: boolean;
+      reviewable?: boolean;
+      issuedInvoiceDocumentId?: string | null;
+      signals?: Partial<CandidateEvaluation["signals"]>;
+    }>;
+  }>(
+    `SELECT method, status, billing_case_id::text, candidates_json, signals_json
+     FROM aruba_document_matches WHERE remote_document_id = $1 FOR UPDATE`,
+    [remoteId],
+  );
+  const collision = await client.query(
+    `SELECT 1 FROM aruba_remote_documents remote
+     JOIN aruba_deduplication_conflicts conflicts
+       ON conflicts.environment = remote.environment
+      AND conflicts.account_reference = remote.account_reference
+      AND (conflicts.existing_remote_document_id = remote.id
+        OR conflicts.incoming_remote_id = remote.remote_id)
+     WHERE remote.id = $1 AND conflicts.resolved_at IS NULL LIMIT 1`,
+    [remoteId],
+  );
+  const identityCollision = Boolean(collision.rows[0]);
   const submitted = await submittedDocumentForRemote(client, remote);
   const submittedMatches = Boolean(submitted && submittedDocumentMatchesRemote(submitted, remote));
   const candidates =
@@ -441,6 +471,7 @@ export async function reconcileRemoteDocument(
         ? "AMBIGUOUS"
         : match.status;
   if (submitted && !submittedMatches) status = "PROFILE_CONFLICT";
+  if (identityCollision) status = "UNKNOWN_REMOTE_STATE";
   const compatibleIndex =
     status === "MATCHED" ? match.evaluations.findIndex((evaluation) => evaluation.compatible) : -1;
   const selected = compatibleIndex >= 0 ? evaluatedCandidates[compatibleIndex]!.source : null;
@@ -504,24 +535,6 @@ export async function reconcileRemoteDocument(
     documentId = null;
   }
   const confirmedSelected = status === "MATCHED" ? selected : null;
-  const previous = await client.query<{
-    method: string;
-    status: string;
-    billing_case_id: string | null;
-    candidates_json: Array<{
-      candidateId?: string;
-      orderIds?: string[];
-      potential?: boolean;
-      compatible?: boolean;
-      reviewable?: boolean;
-      issuedInvoiceDocumentId?: string | null;
-      signals?: Partial<CandidateEvaluation["signals"]>;
-    }>;
-  }>(
-    `SELECT method, status, billing_case_id::text, candidates_json
-     FROM aruba_document_matches WHERE remote_document_id = $1 FOR UPDATE`,
-    [remoteId],
-  );
   const actionableCandidateObserved = match.evaluations.some(
     (evaluation) => evaluation.compatible || evaluation.reviewable,
   );
@@ -563,7 +576,19 @@ export async function reconcileRemoteDocument(
       confirmedSelected?.billing_case_id ?? null,
       confirmedSelected?.invoice_document_id ?? null,
       confirmedSelected?.selected_refund_ids ?? [],
-      JSON.stringify(compatibleIndex >= 0 ? match.evaluations[compatibleIndex]!.signals : {}),
+      JSON.stringify(
+        identityCollision
+          ? {
+              ...previous.rows[0]?.signals_json,
+              providerIdentityCollision: true,
+              identityCollisionCandidatesVerified:
+                !previous.rows[0]?.signals_json.remoteObservationConflict &&
+                (!submitted || submittedMatches),
+            }
+          : compatibleIndex >= 0
+            ? match.evaluations[compatibleIndex]!.signals
+            : {},
+      ),
       JSON.stringify(
         match.evaluations.map((evaluation, index) => ({
           ...evaluation,

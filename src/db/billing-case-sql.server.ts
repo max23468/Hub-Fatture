@@ -272,6 +272,9 @@ export const arubaPotentialMatchSql = `EXISTS (
         OR (aruba_matches.status = 'MATCHED'
           AND aruba_remote.remote_status IN ('SUBMITTED', 'SDI_PROCESSING')
           AND coalesce((aruba_candidate ->> 'compatible')::boolean, false))
+        OR (aruba_matches.status = 'UNKNOWN_REMOTE_STATE'
+          AND aruba_matches.signals_json @> '{"providerIdentityCollision":true}'
+          AND ${arubaCaseCandidateSql()})
         OR (aruba_matches.status = 'PROFILE_CONFLICT'
           AND ${arubaCaseCandidateSql()})
       ))

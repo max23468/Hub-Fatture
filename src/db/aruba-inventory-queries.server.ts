@@ -46,6 +46,7 @@ export interface RemoteDocument {
     differenceAmount: number;
   }>;
   has_xml: boolean;
+  identity_collision: boolean;
   amount_mismatch: boolean;
   external_evidence: boolean;
   requires_control: boolean;
@@ -117,6 +118,8 @@ const remoteDocumentsSql = `
          remote.remote_status, remote.last_observed_at,
          coalesce(matches.status, 'UNMATCHED') AS match_status,
          matches.order_id, matches.document_id,
+         coalesce((matches.signals_json ->> 'providerIdentityCollision')::boolean, false)
+           AS identity_collision,
          count(*) OVER()::int AS total_count,
          EXISTS (SELECT 1 FROM aruba_files
            WHERE aruba_files.remote_document_id = remote.id
