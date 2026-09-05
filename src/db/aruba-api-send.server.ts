@@ -499,11 +499,13 @@ export async function runArubaApiSendJob(job: ClaimedJob) {
       result = await sendUnsignedArubaApiInvoice(authenticated.session, xml);
     } catch (error) {
       if (error instanceof AppError && error.code === "PROVIDER_RATE_LIMITED") {
+        await recordArubaApiRateLimited(authenticated.session.environment, "SEND");
         mutationMayHaveEffect = false;
         throw error;
       }
       if (!(error instanceof AppError) || error.code !== "AUTH_PROVIDER_EXPIRED") throw error;
       mutationMayHaveEffect = false;
+      await assertSendStillAuthorized(context, job);
       const refreshed = await refreshConfiguredArubaApiAfterUnauthorized();
       await assertSendStillAuthorized(context, job);
       await waitForArubaApiSendSlot(refreshed.session.environment);
@@ -512,6 +514,9 @@ export async function runArubaApiSendJob(job: ClaimedJob) {
         mutationMayHaveEffect = true;
         result = await sendUnsignedArubaApiInvoice(refreshed.session, xml);
       } catch (retryError) {
+        if (retryError instanceof AppError && retryError.code === "PROVIDER_RATE_LIMITED") {
+          await recordArubaApiRateLimited(refreshed.session.environment, "SEND");
+        }
         if (
           retryError instanceof AppError &&
           ["AUTH_PROVIDER_EXPIRED", "PROVIDER_RATE_LIMITED"].includes(retryError.code)
@@ -530,12 +535,6 @@ export async function runArubaApiSendJob(job: ClaimedJob) {
     };
   } catch (error) {
     if (error instanceof AppError && error.code === "CONFLICT_REVISION") throw error;
-    if (error instanceof AppError && error.code === "PROVIDER_RATE_LIMITED") {
-      await recordArubaApiRateLimited(
-        getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEMO",
-        "SEND",
-      );
-    }
     if (!mutationMayHaveEffect) {
       const errorCode = error instanceof AppError ? error.code : "UNKNOWN";
       await finishSend(context, {

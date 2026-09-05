@@ -175,14 +175,18 @@ fattura richiede l’approvazione esplicita ordinaria e riceve il successivo num
 
 - finestra provider massima: 48 ore;
 - pagina: da 1 a 100 elementi;
-- autenticazione: massimo una richiesta al minuto per IP;
+- autenticazione: massimo una richiesta al minuto per IP; signin e refresh prenotano lo stesso
+  intervallo persistente, anche fra processi. Dopo un refresh non valido, il signin di recupero
+  attende l’intervallo successivo e non riusa il token già rifiutato;
 - ricerca fatture e notifiche: massimo 12 richieste al minuto per IP per ciascun bucket;
 - invio: massimo 30 richieste al minuto per IP;
 - margine operativo locale: 9 richieste al minuto per ciascun bucket di lettura; finché il tier
   assegnato all’account non è verificato, validazione e invio condividono una cadenza massima di una
   richiesta al minuto, compatibile con il Tier 0 documentato;
 - `429`: `PROVIDER_RATE_LIMITED`, con cooldown persistente per i bucket autenticazione, fatture,
-  notifiche e invio, senza endpoint alternativi o retry immediato;
+  notifiche e invio, senza endpoint alternativi o retry immediato. L’errore viene attribuito solo
+  alla chiamata che lo ha prodotto: un limite sul token non apre cooldown di lettura o invio.
+  La ripianificazione legge il cooldown locale senza effettuare un’altra autenticazione;
 - tetto fail-closed per giro: 10.000 richieste provider.
 
 L’inventario riparte dal 1° luglio 2026, salva il checkpoint dopo il commit di ogni pagina e può

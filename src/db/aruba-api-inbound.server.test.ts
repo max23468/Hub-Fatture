@@ -1388,3 +1388,120 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
     await rm(documentStorage, { recursive: true, force: true });
   }
 });
+
+test("il rinnovo inbound rispetta il limite autenticazione e non blocca le letture per un 429 del token", async () => {
+  const database = await temporaryDatabase("aruba_inbound_auth_limit");
+  const originalFetch = globalThis.fetch;
+  process.env.DATABASE_URL = database.connectionString;
+  process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
+  process.env.APP_BASE_URL = "http://localhost:8080";
+  process.env.APP_ENV = "test";
+  process.env.ARUBA_ACCOUNT_REFERENCE = "synthetic-aruba-account";
+  process.env.CREDENTIALS_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
+  const { getConfig } = await import("../config.server.ts");
+  const previousDatabaseUrl = getConfig().DATABASE_URL;
+  getConfig().DATABASE_URL = database.connectionString;
+  let tokenCalls = 0;
+  let invoiceCalls = 0;
+  try {
+    await runMigrations({ connectionString: database.connectionString });
+    const { encryptCredential } = await import("../crypto.server.ts");
+    const { runArubaApiInboundJob } = await import("./aruba-api-inbound.server.ts");
+    const { claimJob, completeJob } = await import("./connector-jobs.server.ts");
+    await getPool().query(
+      `INSERT INTO connections
+         (provider, environment, account_reference, encrypted_credentials, status,
+          api_paused, inbound_enabled, automatic_authority, credentials_verified_at,
+          credentials_rotated_at)
+       VALUES ('ARUBA', 'DEVELOPMENT', 'synthetic-aruba-account', $1, 'CONNECTED',
+          false, true, 'API', now() - interval '2 minutes', now())`,
+      [
+        encryptCredential(
+          {
+            apiEnvironment: "DEMO",
+            username: "utente-sintetico",
+            password: "password-sintetica",
+            expectedTaxId: "00000000000",
+          },
+          process.env.CREDENTIALS_ENCRYPTION_KEY!,
+        ),
+      ],
+    );
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/signin") {
+        tokenCalls += 1;
+        if (tokenCalls > 1) {
+          assert.equal(new URLSearchParams(String(init.body)).get("grant_type"), "refresh_token");
+          return new Response(null, { status: 429 });
+        }
+        return response({
+          access_token: "synthetic",
+          refresh_token: "synthetic-refresh",
+          token_type: "bearer",
+          expires_in: 240,
+          ".issued": new Date(Date.now() - 26 * 60_000).toUTCString(),
+          ".expires": new Date(Date.now() + 4 * 60_000).toUTCString(),
+        });
+      }
+      if (url.pathname === "/auth/userInfo")
+        return response({
+          username: "utente-sintetico",
+          pec: "test@example.invalid",
+          userDescription: "Sintetico",
+          countryCode: "IT",
+          vatCode: "00000000000",
+          fiscalCode: "00000000000",
+          accountStatus: { expired: false, expirationDate: "2032-01-01" },
+          usageStatus: { usedSpaceKB: 0, maxSpaceKB: 1024 },
+        });
+      invoiceCalls += 1;
+      assert.equal(url.pathname, "/api/v2/invoices-out");
+      return response({
+        content: [],
+        totalElements: 0,
+        totalPages: 0,
+        number: Number(url.searchParams.get("page")),
+        numberOfElements: 0,
+        size: Number(url.searchParams.get("size")),
+        first: true,
+        last: true,
+      });
+    };
+    await getPool().query("INSERT INTO jobs(type) VALUES ('aruba_backfill_inventory')");
+    const firstJob = await claimJob("inbound-auth-first");
+    assert.ok(firstJob);
+    const options = { now: new Date("2026-07-01T01:00:00Z") };
+    const first = await runArubaApiInboundJob(firstJob, options);
+    await completeJob(firstJob, first);
+    assert.equal(tokenCalls, 1);
+    assert.equal(invoiceCalls, 1);
+    await getPool().query("INSERT INTO jobs(type) VALUES ('aruba_sync_inventory')");
+    const nextJob = await claimJob("inbound-auth-refresh");
+    assert.ok(nextJob);
+    await assert.rejects(
+      runArubaApiInboundJob(nextJob, options),
+      (error) => error instanceof AppError && error.code === "ARUBA_API_AUTH_INTERVAL_ACTIVE",
+    );
+    assert.equal(tokenCalls, 1);
+    assert.equal(invoiceCalls, 1);
+    await getPool().query(
+      "UPDATE aruba_api_auth_attempts SET attempted_at = now() - interval '2 minutes'",
+    );
+    await assert.rejects(
+      runArubaApiInboundJob(nextJob, options),
+      (error) => error instanceof AppError && error.code === "PROVIDER_RATE_LIMITED",
+    );
+    assert.equal(tokenCalls, 2);
+    assert.equal(invoiceCalls, 1);
+    const limited = await getPool().query(
+      `SELECT scope, rate_limited_count FROM aruba_api_traffic_limits WHERE cooldown_until > now() ORDER BY scope`,
+    );
+    assert.deepEqual(limited.rows, [{ scope: "AUTH", rate_limited_count: 1 }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await closePool();
+    getConfig().DATABASE_URL = previousDatabaseUrl;
+    await database.drop();
+  }
+});

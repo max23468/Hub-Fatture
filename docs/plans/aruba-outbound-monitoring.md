@@ -113,7 +113,9 @@ canonico prima di creare un tentativo di rete; il controllo immediatamente prima
   con un token vicino alla scadenza, e adotta una single-flight nel processo per coppia
   account/ambiente: richieste concorrenti attendono lo stesso refresh.
 - Ogni refresh sostituisce atomicamente entrambi i token e le relative scadenze in memoria.
-- Un refresh rifiutato con `invalid_grant` consente un solo signin di recupero. Un secondo errore
+- Signin e refresh prenotano lo stesso intervallo persistente fra processi prima della rete.
+- Un refresh rifiutato con `invalid_grant` elimina la coppia rifiutata dalla cache e consente un
+  solo signin di recupero dopo l’intervallo di autenticazione. Un secondo errore
   invalida la sessione e apre un controllo; non nasce un ciclo di autenticazione.
 - Le operazioni Aruba ordinarie passano dal worker; le route applicative accodano lavoro e leggono
   proiezioni persistite. Le sole verifiche immediate autorizzate usano lo stesso traffic guard.

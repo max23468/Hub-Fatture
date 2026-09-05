@@ -300,6 +300,7 @@ class ArubaSessionManager {
     this.session ??= ArubaSessionManager.sessions.get(this.cacheKey) ?? null;
     if (this.session?.expiresAt && this.session.expiresAt <= Date.now() + 5 * 60_000) {
       if (this.session.refreshExpiresAt > Date.now() + 5 * 60_000) {
+        if (this.reserveAuthentication) await reserveArubaApiAuthentication(this.environment);
         await reserveArubaApiRequests(this.runId);
         try {
           this.session = await arubaProviderCall(this.environment, "AUTH", () =>
@@ -309,6 +310,7 @@ class ArubaSessionManager {
         } catch (error) {
           if (error instanceof AppError && error.code === "AUTH_PROVIDER_REFRESH_INVALID") {
             this.session = null;
+            ArubaSessionManager.sessions.delete(this.cacheKey);
           } else {
             throw error;
           }
@@ -421,6 +423,7 @@ async function readGroup(
   group: ReturnType<typeof arubaApiGroupFromDetail>,
   knownDetail?: ArubaApiInvoiceDetail,
 ) {
+  const session = await manager.current();
   if (!knownDetail) {
     await waitForRead("INVOICE_READ");
     await reserveArubaApiRequests(runId);
@@ -428,14 +431,14 @@ async function readGroup(
   const detail =
     knownDetail ??
     (await arubaProviderCall(manager.environmentName(), "INVOICE_READ", async () =>
-      readArubaApiInvoiceDetail(await manager.current(), group.id),
+      readArubaApiInvoiceDetail(session, group.id),
     ));
   await waitForRead("NOTIFICATION_READ");
   await reserveArubaApiRequests(runId);
   const notifications = await arubaProviderCall(
     manager.environmentName(),
     "NOTIFICATION_READ",
-    async () => readArubaApiNotifications(await manager.current(), group.id),
+    async () => readArubaApiNotifications(session, group.id),
   );
   return mapArubaApiReadbackGroup(detail, notifications, group);
 }
@@ -696,10 +699,11 @@ async function readTargetedGroup(
   waitForRead: (scope: ArubaApiReadScope) => Promise<void>,
   providerGroupId: string,
 ) {
+  const session = await manager.current();
   await waitForRead("INVOICE_READ");
   await reserveArubaApiRequests(run.id);
   const detail = await arubaProviderCall(manager.environmentName(), "INVOICE_READ", async () =>
-    readArubaApiInvoiceDetail(await manager.current(), providerGroupId),
+    readArubaApiInvoiceDetail(session, providerGroupId),
   );
   return readGroup(run.id, manager, waitForRead, arubaApiGroupFromDetail(detail), detail);
 }
@@ -713,11 +717,12 @@ async function readHistoricalTarget(
   const recovered = await findHistoricalArubaProviderGroup(
     target,
     async (page, windowStart, windowEnd) => {
+      const session = await manager.current();
       await waitForRead("INVOICE_READ");
       await reserveArubaApiRequests(run.id);
       return arubaProviderCall(manager.environmentName(), "INVOICE_READ", async () =>
         readArubaApiInvoicePage({
-          session: await manager.current(),
+          session,
           page,
           windowStart,
           windowEnd,
@@ -832,11 +837,12 @@ export async function runArubaApiInboundJob(
       );
       const checkpoint = latest.rows[0];
       if (!checkpoint) throw new AppError("CONFLICT_REVISION", 409);
+      const session = await manager.current();
       await waitForRead("INVOICE_READ");
       await reserveArubaApiRequests(run.id);
       const page = await arubaProviderCall(credentials.apiEnvironment, "INVOICE_READ", async () =>
         readArubaApiInvoicePage({
-          session: await manager.current(),
+          session,
           page: checkpoint.checkpoint_page,
           windowStart: checkpoint.checkpoint_start,
           windowEnd: checkpoint.checkpoint_end,

@@ -15,6 +15,7 @@ import {
   type MonitoredArubaSubmissionStatus,
 } from "../aruba-submission-state.ts";
 import { AppError } from "../errors.ts";
+import { ARUBA_API_POLICY, type ArubaApiTrafficScope } from "../aruba-api-policy.ts";
 import {
   ARUBA_API_V2_CONTRACT,
   readArubaApiInvoiceDetail,
@@ -27,18 +28,20 @@ import {
   refreshConfiguredArubaApiAfterUnauthorized,
 } from "./aruba-api-connection.server.ts";
 import { reconcileArubaApiOutboundReadback } from "./aruba-api-inbound.server.ts";
-import { connectionEnvironment, inventoryEnvironment } from "./aruba-api-context.server.ts";
+import {
+  arubaProviderCall,
+  connection,
+  connectionEnvironment,
+  inventoryEnvironment,
+  storedApiEnvironment,
+} from "./aruba-api-context.server.ts";
 import { scheduleArubaEmissionEffects } from "./aruba-emission-effects.server.ts";
 import { requeueAuthoritativelyRejectedInvoice } from "./rejected-invoice-requeue.server.ts";
 import {
   refreshArubaApiBatchStatus,
   type ArubaOutboundActor,
 } from "./aruba-api-outbound-shared.server.ts";
-import {
-  arubaApiCooldownDelayMs,
-  recordArubaApiRateLimited,
-  waitForArubaApiReadSlot,
-} from "./aruba-api-traffic.server.ts";
+import { arubaApiCooldownDelayMs, waitForArubaApiReadSlot } from "./aruba-api-traffic.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { assertJobLease, renewLockedJobLease } from "./connector-jobs.server.ts";
 import type { ClaimedJob } from "./connector-types.server.ts";
@@ -49,7 +52,7 @@ type TargetedPayload = Extract<ArubaReadbackJobPayload, { readbackKind: "targete
 
 class ArubaReadClient {
   private connected: ConnectedArubaApi | null = null;
-  private latestScope: "INVOICE_READ" | "NOTIFICATION_READ" = "INVOICE_READ";
+  private latestScope: ArubaApiTrafficScope = "AUTH";
   private readonly job: ClaimedJob;
 
   constructor(job: ClaimedJob) {
@@ -64,40 +67,37 @@ class ArubaReadClient {
     scope: "INVOICE_READ" | "NOTIFICATION_READ",
     call: (session: ConnectedArubaApi["session"]) => Promise<T>,
   ) {
-    this.latestScope = scope;
-    const invoke = async () => {
+    const run = async () => {
       const connected = await this.connection();
+      this.latestScope = scope;
       await withTransaction((client) => assertJobLease(client, this.job));
       await waitForArubaApiReadSlot(connected.session.environment, scope);
       await withTransaction((client) => renewLockedJobLease(client, this.job));
-      return call(connected.session);
-    };
-    const run = async () => {
-      try {
-        return await invoke();
-      } catch (error) {
-        if (error instanceof AppError && error.code === "PROVIDER_RATE_LIMITED") {
-          const connected = await this.connection();
-          await recordArubaApiRateLimited(connected.session.environment, scope);
-        }
-        throw error;
-      }
+      return arubaProviderCall(connected.session.environment, scope, () => call(connected.session));
     };
     try {
       return await run();
     } catch (error) {
       if (!(error instanceof AppError) || error.code !== "AUTH_PROVIDER_EXPIRED") throw error;
+      this.latestScope = "AUTH";
       this.connected = await refreshConfiguredArubaApiAfterUnauthorized();
       return run();
     }
   }
 
   async environment() {
-    return (await this.connection()).session.environment;
+    if (this.connected) return this.connected.session.environment;
+    const current = await connection(getPool());
+    if (!current) throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
+    return storedApiEnvironment(current);
   }
 
   async cooldownDelayMs() {
-    return arubaApiCooldownDelayMs(await this.environment(), this.latestScope);
+    return arubaApiCooldownDelayMs(
+      await this.environment(),
+      this.latestScope,
+      this.latestScope === "AUTH" ? ARUBA_API_POLICY.authenticationIntervalMs : 15 * 60_000,
+    );
   }
 
   private async connection() {
@@ -109,7 +109,11 @@ class ArubaReadClient {
 async function continueAfterArubaReadLimit(error: unknown, reader: ArubaReadClient) {
   if (
     !(error instanceof AppError) ||
-    !["PROVIDER_RATE_LIMITED", "ARUBA_API_COOLDOWN_ACTIVE"].includes(error.code)
+    ![
+      "PROVIDER_RATE_LIMITED",
+      "ARUBA_API_COOLDOWN_ACTIVE",
+      "ARUBA_API_AUTH_INTERVAL_ACTIVE",
+    ].includes(error.code)
   ) {
     throw error;
   }
@@ -329,7 +333,11 @@ async function runSubmissionReadback(job: ClaimedJob, submissionId: string) {
   } catch (error) {
     const errorCode = error instanceof AppError ? error.code : "UNKNOWN";
     if (errorCode === "CONFLICT_REVISION") throw error;
-    const rateLimited = ["PROVIDER_RATE_LIMITED", "ARUBA_API_COOLDOWN_ACTIVE"].includes(errorCode);
+    const rateLimited = [
+      "PROVIDER_RATE_LIMITED",
+      "ARUBA_API_COOLDOWN_ACTIVE",
+      "ARUBA_API_AUTH_INTERVAL_ACTIVE",
+    ].includes(errorCode);
     const delayMs = rateLimited && reader ? await reader.cooldownDelayMs() : 15 * 60_000;
     await withTransaction(async (client) => {
       await client.query(
