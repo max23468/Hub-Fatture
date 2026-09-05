@@ -849,6 +849,10 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       repeatedStage.resolvedDocuments?.map((document) => document.remoteDocumentId),
       [stagedRemoteDocumentId, immutableConflictRemoteDocumentId],
     );
+    assert.deepEqual(
+      repeatedStage.requestedFiles.filter((file) => file.remoteId === "atomic-immutable-conflict"),
+      [],
+    );
     await groupFile.importArubaApiGroupFile({
       runId: repeatedConflictRunId,
       providerGroupId: "atomic-stage-group",

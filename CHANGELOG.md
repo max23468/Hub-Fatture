@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.14
+
+- Una collisione fiscale Aruba irrisolta resta quarantinata anche nei refresh successivi: il documento non rientra nella riconciliazione automatica e, quando possiede già XML o P7M ufficiale, non richiede nuovamente file, PDF o notifiche fino alla decisione manuale.
+
 ## 1.3.13
 
 - La persistenza del refresh API Aruba applica ora la selezione di artefatti calcolata dall’inventario: file fiscali, notifiche e PDF già completi non vengono reimportati, mentre XML e P7M restano equivalenti come fonte fiscale ufficiale. I refresh mirati dei documenti in collisione possono così concludersi senza alterare le evidenze già archiviate.
