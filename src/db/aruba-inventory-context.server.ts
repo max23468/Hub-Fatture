@@ -33,6 +33,40 @@ export function arubaPayloadDigest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+/** La decisione vale solo per le due osservazioni effettivamente verificate. */
+export async function refreshArubaIdentityResolutions(
+  client: pg.PoolClient,
+  remoteId: string,
+  reopen = false,
+) {
+  const reopened = await client.query<{ evidence: Record<string, string> }>(
+    `UPDATE aruba_deduplication_conflicts conflicts SET resolved_at = NULL
+     WHERE resolved_at IS NOT NULL AND resolution_json -> 'evidence' ? $1
+       AND ($2::boolean OR EXISTS (
+         SELECT 1 FROM jsonb_each_text(resolution_json -> 'evidence') evidence
+         LEFT JOIN aruba_remote_documents member ON member.id::text = evidence.key
+         LEFT JOIN aruba_document_matches match ON match.remote_document_id = member.id
+         WHERE member.metadata_digest IS DISTINCT FROM evidence.value
+           OR member.remote_status IS DISTINCT FROM (resolution_json -> 'statuses' ->> evidence.key)
+           OR (SELECT storage.sha256 FROM aruba_files files JOIN storage_objects storage ON storage.id = files.storage_object_id
+               WHERE files.remote_document_id = member.id AND files.kind = 'ARUBA_XML'
+               ORDER BY files.id DESC LIMIT 1) IS DISTINCT FROM (resolution_json -> 'xmlHashes' ->> evidence.key)
+           OR coalesce((match.signals_json ->> 'remoteObservationConflict')::boolean, false)
+       ))
+     RETURNING resolution_json -> 'evidence' AS evidence`,
+    [remoteId, reopen],
+  );
+  const ids = [...new Set(reopened.rows.flatMap((row) => Object.keys(row.evidence)))];
+  if (ids.length)
+    await client.query(
+      `UPDATE aruba_document_matches SET status = 'UNKNOWN_REMOTE_STATE', method = 'NONE',
+       signals_json = (signals_json - 'identityCollisionExcluded') ||
+         '{"providerIdentityCollision":true,"identityCollisionCandidatesVerified":false}', updated_at = now()
+     WHERE remote_document_id = ANY($1::bigint[])`,
+      [ids],
+    );
+}
+
 export function arubaCursorStream(environment: string, accountReference: string, stream: string) {
   const accountDigest = createHash("sha256").update(accountReference).digest("hex").slice(0, 16);
   return `${environment}:${accountDigest}:${stream}`;

@@ -29,14 +29,16 @@ function ArubaInventoryRow({ remote }: { remote: RemoteDocument }) {
         {copy.documents.remoteStatusLabels[remote.remote_status] ?? remote.remote_status}
       </td>
       <td data-label={copy.documents.matchStatus}>
-        {copy.documents.matchStatusLabels[remote.match_status] ?? remote.match_status}
+        {remote.identity_excluded
+          ? "Escluso dai collegamenti"
+          : (copy.documents.matchStatusLabels[remote.match_status] ?? remote.match_status)}
       </td>
       <td data-label={copy.documents.remoteLastReadback}>{dateTime(remote.last_observed_at)}</td>
       <td data-label={copy.documents.control}>
         {remote.requires_control ? (
           <Link
             className="dashboard-row-link"
-            to={`/controlli?id=${encodeURIComponent(`ARUBA_REMOTE:${remote.id}`)}`}
+            to={`/controlli?id=${encodeURIComponent(`ARUBA_REMOTE:${remote.control_remote_id}`)}`}
           >
             {copy.documents.openControl}
           </Link>

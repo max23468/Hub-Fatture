@@ -28,6 +28,7 @@ import {
   arubaAccountReference as accountReference,
   arubaRuntimeEnvironment as environment,
   lockArubaInventory,
+  refreshArubaIdentityResolutions,
   type ArubaReadActor,
 } from "./aruba-inventory-context.server.ts";
 import {
@@ -325,12 +326,14 @@ async function importArubaRemoteOfficialFileAuthorized(
                updated_at = now() WHERE remote_document_id = $1`,
             [remoteDocumentId],
           );
+          await refreshArubaIdentityResolutions(client, remoteDocumentId, true);
         } else if (statusTransition === "APPLY") {
           await client.query(
             `UPDATE aruba_remote_documents SET remote_status = $2,
                remote_status_observed_at = now(), last_observed_at = now() WHERE id = $1`,
             [remoteDocumentId, status],
           );
+          await refreshArubaIdentityResolutions(client, remoteDocumentId);
           if (isEmissionConfirmed(status)) {
             await materializeLatestOfficialXml(client, remoteDocumentId);
           }

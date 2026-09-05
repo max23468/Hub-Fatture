@@ -772,6 +772,272 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
         document_id: creditDraft.id,
       },
     );
+
+    // La collisione viene chiusa localmente senza fondere i due ID del provider.
+    const { readArubaIdentityConflict, resolveArubaIdentityConflict } =
+      await import("./aruba-identity-resolution.server.ts");
+    const { reconcileRemoteDocument } = await import("./aruba-reconciliation.server.ts");
+    const { remoteInventoryDocumentSchema, remoteMetadataDigest } =
+      await import("../aruba-inbound.ts");
+    const observation = remoteInventoryDocumentSchema.parse({
+      remoteId: "manual-amount-link",
+      documentType: "TD01",
+      fiscalYear: 2026,
+      series: "FPR",
+      fiscalNumber: "1",
+      documentDate: "2026-08-10",
+      recipientName: "Mario Rossi",
+      recipientTaxId: "RSSMRA80A01H501U",
+      recipientCountryCode: "IT",
+      recipientAddress: "Via Cliente 2 00100 Roma IT",
+      totalAmount: 12345,
+      currency: "EUR",
+      status: "DELIVERED",
+      xmlSha256: digest,
+      orderReferences: [],
+    });
+    await getPool().query(
+      `INSERT INTO aruba_remote_observations
+        (remote_document_id, sync_session_id, remote_status, stream, scan_ordinal, page_ordinal, payload_digest, payload_json)
+       VALUES ($1, '00000000-0000-4000-8000-000000000222', 'DELIVERED', 'invoices:2026', 1, 2, repeat('a', 64), $2)`,
+      [remote.id, JSON.stringify(observation)],
+    );
+    await getPool().query("UPDATE aruba_remote_documents SET metadata_digest = $2 WHERE id = $1", [
+      remote.id,
+      remoteMetadataDigest(observation),
+    ]);
+    const duplicate = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year, series, fiscal_number,
+         document_date, total_amount, remote_status, remote_status_observed_at, metadata_digest, xml_sha256)
+       SELECT environment, account_reference, 'erroneous-duplicate', document_type, fiscal_year, series, fiscal_number,
+         document_date, total_amount, 'SUBMITTED', now(), repeat('b', 64), xml_sha256
+       FROM aruba_remote_documents WHERE id = $1 RETURNING id::text`,
+        [remote.id],
+      )
+    ).rows[0]!;
+    const duplicatePath = "aruba/manual/duplicate.xml";
+    await writeFile(path.join(sharedStorageRoot, duplicatePath), xml, { mode: 0o600 });
+    const duplicateStorage = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+       VALUES ('ARUBA_XML', $1, $2, $3, 'application/xml') RETURNING id::text`,
+        [duplicatePath, digest, Buffer.byteLength(xml)],
+      )
+    ).rows[0]!;
+    await getPool().query(
+      `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+      VALUES ($1, $2, 'ARUBA_XML')`,
+      [duplicate.id, duplicateStorage.id],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_document_matches
+      (remote_document_id, status, method, matcher_version, signals_json)
+      VALUES ($1, 'UNKNOWN_REMOTE_STATE', 'NONE', 1, '{"providerIdentityCollision":true}')`,
+      [duplicate.id],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_deduplication_conflicts
+      (environment, account_reference, existing_remote_document_id, incoming_remote_id, collision_key,
+       incoming_payload_digest, sync_session_id)
+      VALUES ('MOCK', 'synthetic-aruba-account', $1, 'erroneous-duplicate', 'FISCAL_IDENTITY', repeat('b', 64),
+        '00000000-0000-4000-8000-000000000222')`,
+      [remote.id],
+    );
+    const duplicateObservation = {
+      ...observation,
+      remoteId: "erroneous-duplicate",
+      status: "SUBMITTED" as const,
+    };
+    await getPool().query("UPDATE aruba_remote_documents SET metadata_digest = $2 WHERE id = $1", [
+      duplicate.id,
+      remoteMetadataDigest(duplicateObservation),
+    ]);
+    await getPool().query(
+      `UPDATE aruba_document_matches SET status = 'UNKNOWN_REMOTE_STATE', method = 'NONE',
+      signals_json = '{"providerIdentityCollision":true,"identityCollisionCandidatesVerified":true}'
+      WHERE remote_document_id = $1`,
+      [remote.id],
+    );
+    const controls = await import("./operational-controls.server.ts");
+    await controls.refreshOperationalControls();
+    assert.equal(
+      (await controls.readOperationalControls({ kind: "ARUBA_IDENTITY_CONFLICT" })).total,
+      1,
+    );
+    const inventory = await import("./aruba-inventory-queries.server.ts");
+    const collisionRows = (await inventory.listRemoteDocuments()).filter((row) =>
+      [remote.id, duplicate.id].includes(row.id),
+    );
+    assert.equal(new Set(collisionRows.map((row) => row.control_remote_id)).size, 1);
+    const decision = await readArubaIdentityConflict(remote.id);
+    assert.equal(decision.members.length, 2);
+    const why = "Confrontati entrambi gli XML: il secondo documento è stato emesso per errore";
+    await assert.rejects(
+      resolveArubaIdentityConflict(remote.id, remote.id, decision.fingerprint, why, "confirmed", {
+        ...owner,
+        canApprove: false,
+      }),
+      (error) => error instanceof AppError && error.code === "ARUBA_READ_SESSION_FORBIDDEN",
+    );
+    await assert.rejects(
+      resolveArubaIdentityConflict(
+        remote.id,
+        duplicate.id,
+        decision.fingerprint,
+        why,
+        "confirmed",
+        owner,
+      ),
+    );
+    await assert.rejects(
+      resolveArubaIdentityConflict(remote.id, remote.id, "stale", why, "confirmed", owner),
+    );
+    await assert.rejects(
+      resolveArubaIdentityConflict(remote.id, remote.id, decision.fingerprint, why, null, owner),
+    );
+    await resolveArubaIdentityConflict(
+      remote.id,
+      remote.id,
+      decision.fingerprint,
+      why,
+      "confirmed",
+      owner,
+    );
+    assert.equal((await readArubaIdentityConflict(remote.id)).members.length, 0);
+    const { ingestParsedArubaPage } = await import("./aruba-inbound.server.ts");
+    const session = {
+      id: "00000000-0000-4000-8000-000000000222",
+      environment: "MOCK" as const,
+      account_reference: "synthetic-aruba-account",
+    };
+    const page = {
+      stream: "invoices:2026",
+      scanOrdinal: 1,
+      pageOrdinal: 91,
+      cursor: null,
+      terminal: true,
+      fullScan: false,
+      documents: [duplicateObservation],
+    };
+    await withTransaction(async (client) => {
+      await ingestParsedArubaPage(client, session, page, false);
+    });
+    assert.equal((await readArubaIdentityConflict(remote.id)).members.length, 0);
+    await assert.rejects(
+      resolveArubaIdentityConflict(
+        remote.id,
+        remote.id,
+        decision.fingerprint,
+        why,
+        "confirmed",
+        owner,
+      ),
+    );
+    await withTransaction(async (client) => {
+      await reconcileRemoteDocument(
+        client,
+        duplicate.id,
+        { ...observation, remoteId: "erroneous-duplicate", status: "SUBMITTED" },
+        true,
+      );
+    });
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT status, method, document_id, signals_json FROM aruba_document_matches
+      WHERE remote_document_id = $1`,
+          [duplicate.id],
+        )
+      ).rows[0],
+      {
+        status: "UNMATCHED",
+        method: "MANUAL",
+        document_id: null,
+        signals_json: { identityCollisionExcluded: true },
+      },
+    );
+    await assert.rejects(
+      decisions.resolveArubaDocumentMatch(duplicate.id, order.id, why, "confirmed", null, owner),
+    );
+    assert.equal(
+      (await controls.readOperationalControls({ kind: "ARUBA_IDENTITY_CONFLICT" })).total,
+      0,
+    );
+    assert.equal(
+      (await controls.readOperationalControls({ kind: "ARUBA_ERRONEOUS_DOCUMENT" })).total,
+      1,
+    );
+    assert.equal(
+      (
+        await getPool().query(`SELECT count(*)::int AS count FROM audit_events
+      WHERE action = 'ARUBA_IDENTITY_CONFLICT_RESOLVED'`)
+      ).rows[0].count,
+      1,
+    );
+    await getPool().query(
+      `UPDATE aruba_remote_documents SET remote_status = 'SDI_PROCESSING'
+      WHERE id = $1`,
+      [duplicate.id],
+    );
+    await withTransaction(async (client) => {
+      await reconcileRemoteDocument(
+        client,
+        duplicate.id,
+        { ...observation, remoteId: "erroneous-duplicate", status: "SDI_PROCESSING" },
+        true,
+      );
+    });
+    assert.equal((await readArubaIdentityConflict(remote.id)).members.length, 2);
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT status FROM aruba_document_matches WHERE remote_document_id = $1`,
+          [duplicate.id],
+        )
+      ).rows[0].status,
+      "UNKNOWN_REMOTE_STATE",
+    );
+
+    const reopened = await readArubaIdentityConflict(remote.id);
+    await resolveArubaIdentityConflict(
+      remote.id,
+      remote.id,
+      reopened.fingerprint,
+      why,
+      "confirmed",
+      owner,
+    );
+    await withTransaction(async (client) => {
+      await ingestParsedArubaPage(
+        client,
+        session,
+        {
+          ...page,
+          pageOrdinal: 92,
+          documents: [{ ...duplicateObservation, remoteId: "third-duplicate" }],
+        },
+        false,
+      );
+    });
+    const three = await readArubaIdentityConflict(remote.id);
+    assert.equal(three.members.length, 3);
+    await controls.refreshOperationalControls();
+    assert.equal(
+      (await controls.readOperationalControls({ kind: "ARUBA_IDENTITY_CONFLICT" })).total,
+      1,
+    );
+    await assert.rejects(
+      resolveArubaIdentityConflict(
+        remote.id,
+        remote.id,
+        three.fingerprint,
+        why,
+        "confirmed",
+        owner,
+      ),
+    );
   } finally {
     await closePool();
     await rm(sharedStorageRoot, { recursive: true, force: true });

@@ -121,6 +121,13 @@ export async function resolveArubaDocumentMatch(
   }
   return withTransaction(async (client) => {
     await lockArubaInventory(client);
+    const collision = await client.query(
+      `SELECT 1 FROM aruba_document_matches WHERE remote_document_id = $1
+       AND (signals_json @> '{"providerIdentityCollision":true}'
+         OR signals_json @> '{"identityCollisionExcluded":true}')`,
+      [remoteDocumentId],
+    );
+    if (collision.rowCount) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     const match = await client.query<{
       status: string;
       method: string | null;
@@ -261,6 +268,13 @@ export async function confirmArubaDocumentOutOfScope(
   }
   return withTransaction(async (client) => {
     await lockArubaInventory(client);
+    const collision = await client.query(
+      `SELECT 1 FROM aruba_document_matches WHERE remote_document_id = $1
+       AND (signals_json @> '{"providerIdentityCollision":true}'
+         OR signals_json @> '{"identityCollisionExcluded":true}')`,
+      [remoteDocumentId],
+    );
+    if (collision.rowCount) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     const match = await client.query<{
       status: string;
       method: string | null;

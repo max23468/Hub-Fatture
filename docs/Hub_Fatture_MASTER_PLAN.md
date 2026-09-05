@@ -63,6 +63,14 @@ Una collisione fra due ID canonici con stato noto, dopo il confronto di entrambi
 blocca soltanto le preparazioni coinvolte: non azzera quelle estranee. Il conflitto e il monitoraggio
 restano aperti. Una controparte mancante, uno stato realmente ignoto o dati remoti incoerenti
 mantengono invece il blocco globale; il numero duplicato resta sempre inutilizzabile.
+La coda mostra un solo controllo per gruppo di documenti in collisione, con tutte le controparti
+nel dettaglio; i collegamenti dall’inventario convergono sullo stesso controllo.
+Il titolare può risolvere localmente una collisione fra due documenti con XML ufficiali e stati
+noti, scegliendo quello con emissione confermata e motivando l’esclusione dell’altro dai
+collegamenti. La decisione è atomica, auditata e vincolata alle evidenze rilette dal server;
+non fonde ID, non annulla documenti e non sostituisce la gestione fiscale su Aruba. Il documento
+indicato come errato resta in un controllo dedicato finché non risulta scartato. Nuove evidenze
+remote riaprono la verifica; un terzo documento non eredita mai la decisione sulla coppia.
 
 `AGENTS.md` governa il modo di lavorare, non modifica da solo il perimetro o le decisioni fiscali. README, indici e runbook devono rimandare alla fonte canonica senza duplicare intere sezioni. Se l'implementazione cambia un comportamento previsto, la stessa modifica aggiorna test e documentazione pertinente.
 

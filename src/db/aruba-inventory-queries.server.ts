@@ -47,6 +47,8 @@ export interface RemoteDocument {
   }>;
   has_xml: boolean;
   identity_collision: boolean;
+  control_remote_id: string;
+  identity_excluded: boolean;
   amount_mismatch: boolean;
   external_evidence: boolean;
   requires_control: boolean;
@@ -120,6 +122,25 @@ const remoteDocumentsSql = `
          matches.order_id, matches.document_id,
          coalesce((matches.signals_json ->> 'providerIdentityCollision')::boolean, false)
            AS identity_collision,
+         CASE WHEN matches.signals_json @> '{"providerIdentityCollision":true}' THEN (
+           WITH RECURSIVE members(id) AS (
+             SELECT remote.id
+             UNION
+             SELECT CASE WHEN collision.existing_remote_document_id = members.id
+               THEN incoming.id ELSE collision.existing_remote_document_id END
+             FROM members JOIN aruba_deduplication_conflicts collision
+               ON collision.environment = remote.environment
+              AND collision.account_reference = remote.account_reference
+              AND collision.resolved_at IS NULL
+             LEFT JOIN aruba_remote_documents incoming ON incoming.remote_id = collision.incoming_remote_id
+               AND incoming.environment = collision.environment AND incoming.account_reference = collision.account_reference
+             WHERE collision.existing_remote_document_id = members.id OR incoming.id = members.id
+           )
+           SELECT coalesce(min(member.id) FILTER (WHERE member.remote_status <> 'REJECTED'), remote.id)::text
+           FROM members JOIN aruba_remote_documents member ON member.id = members.id
+         ) ELSE remote.id::text END AS control_remote_id,
+         coalesce((matches.signals_json ->> 'identityCollisionExcluded')::boolean, false)
+           AS identity_excluded,
          count(*) OVER()::int AS total_count,
          EXISTS (SELECT 1 FROM aruba_files
            WHERE aruba_files.remote_document_id = remote.id
@@ -140,7 +161,8 @@ const remoteDocumentsSql = `
              FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS evidence_candidate
              WHERE ${arubaExternalEvidenceCandidateSql("evidence_candidate", "remote")}
            )) AS external_evidence,
-         ((${arubaBlockingMatchPredicate})
+         ((matches.signals_json @> '{"identityCollisionExcluded":true}' AND remote.remote_status <> 'REJECTED')
+           OR (${arubaBlockingMatchPredicate})
            OR (matches.method <> 'MANUAL'
              AND matches.status IN ('UNMATCHED', 'AMBIGUOUS', 'PROFILE_CONFLICT')
              AND remote.remote_status <> 'REJECTED'
@@ -208,7 +230,8 @@ const remoteDocumentsSql = `
             WHERE aruba_files.remote_document_id = remote.id
               AND aruba_files.kind = 'ARUBA_XML'))
       )) OR (NOT $5::boolean AND (
-        ${arubaBlockingMatchPredicate}
+        (matches.signals_json @> '{"identityCollisionExcluded":true}' AND remote.remote_status <> 'REJECTED')
+        OR ${arubaBlockingMatchPredicate}
         OR (matches.method <> 'MANUAL'
           AND matches.status IN ('UNMATCHED', 'AMBIGUOUS', 'PROFILE_CONFLICT')
           AND remote.remote_status <> 'REJECTED'
