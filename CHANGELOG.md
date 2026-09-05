@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.13
+
+- La persistenza del refresh API Aruba applica ora la selezione di artefatti calcolata dall’inventario: file fiscali, notifiche e PDF già completi non vengono reimportati, mentre XML e P7M restano equivalenti come fonte fiscale ufficiale. I refresh mirati dei documenti in collisione possono così concludersi senza alterare le evidenze già archiviate.
+
 ## 1.3.12
 
 - Il refresh Aruba riconosce come idempotente un file ufficiale già acquisito per un documento coinvolto in una collisione fiscale, anche quando il provider varia metadati accessori della notifica: la sincronizzazione prosegue senza riconciliare né materializzare automaticamente i documenti ambigui.

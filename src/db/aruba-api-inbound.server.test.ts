@@ -146,7 +146,9 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
           creationDate: "2026-07-01T02:30:00.000Z",
           lastUpdate: "2026-07-01T02:31:00.000Z",
           idSdi: null,
-          pdfFile: null,
+          pdfFile: Buffer.from(
+            `%PDF-1.7\nsynthetic-${groupId}-${targetedGroupRequests.length}\nstartxref\n0\n%%EOF`,
+          ).toString("base64"),
           pddAvailable: false,
         });
       }
@@ -1096,6 +1098,17 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       "checkpoint-b",
       "checkpoint-b",
     ]);
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT count(*)::integer AS count
+           FROM aruba_files files
+           JOIN aruba_remote_documents remote ON remote.id = files.remote_document_id
+           WHERE remote.provider_group_id = 'checkpoint-a' AND files.kind = 'ARUBA_PDF'`,
+        )
+      ).rows[0].count,
+      1,
+    );
     assert.deepEqual(
       (
         await getPool().query(
