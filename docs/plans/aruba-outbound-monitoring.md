@@ -89,6 +89,17 @@ o semantica.
 Non si usa `/api/v2/comfin/{requestId}`: riguarda le comunicazioni finanziarie, non lo stato delle
 fatture inviate.
 
+### Verifica inventario alla conferma
+
+Le preparazioni pronte rimangono visibili e modificabili durante le letture Aruba.
+L’inventario periodico viene aggiornato ogni dieci minuti; il monitoraggio post-invio conserva
+la propria cadenza. La conferma dell’approvazione richiede una lettura canonica entro cinque
+minuti: riusa il giro in corso o accoda una sincronizzazione. Il frontend attende al massimo due
+minuti nella pagina corrente, mantenendo revisione, hash e scelte originali. Un cambiamento
+rilevante o un errore interrompe l’approvazione della preparazione interessata senza numerarla. La transazione rilegge comunque tutti
+i prerequisiti sotto lock. Un invio in coda con inventario da aggiornare cede il worker al giro
+canonico prima di creare un tentativo di rete; il controllo immediatamente prima dell’invio resta.
+
 ## 4. Sessione e refresh token
 
 ### 4.1 Ciclo di vita

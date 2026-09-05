@@ -97,21 +97,24 @@ export async function expectVisibleFieldsetTitlesInside(page: Page) {
       ".preparation-disclosure fieldset:visible, .preparation-approval__form fieldset:visible",
     )
     .evaluateAll((fieldsets) =>
-      fieldsets.map((fieldset) => {
-        const legend = fieldset.querySelector(":scope > legend");
-        if (!(legend instanceof HTMLElement)) return null;
-        const box = fieldset.getBoundingClientRect();
-        const title = legend.getBoundingClientRect();
-        return {
-          label: legend.textContent?.trim() ?? "",
-          inside:
-            title.top >= box.top + 12 &&
-            title.left >= box.left + 12 &&
-            title.right <= box.right - 12 &&
-            title.bottom < box.bottom,
-          wrapped: legend.scrollWidth <= legend.clientWidth,
-        };
-      }),
+      // Il gruppo che disabilita la conferma usa display:contents e non disegna un riquadro.
+      fieldsets
+        .filter((fieldset) => getComputedStyle(fieldset).display !== "contents")
+        .map((fieldset) => {
+          const legend = fieldset.querySelector(":scope > legend");
+          if (!(legend instanceof HTMLElement)) return null;
+          const box = fieldset.getBoundingClientRect();
+          const title = legend.getBoundingClientRect();
+          return {
+            label: legend.textContent?.trim() ?? "",
+            inside:
+              title.top >= box.top + 12 &&
+              title.left >= box.left + 12 &&
+              title.right <= box.right - 12 &&
+              title.bottom < box.bottom,
+            wrapped: legend.scrollWidth <= legend.clientWidth,
+          };
+        }),
     );
   expect(positions.length).toBeGreaterThan(0);
   for (const position of positions) {

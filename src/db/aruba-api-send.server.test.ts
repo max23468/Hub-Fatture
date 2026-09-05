@@ -295,13 +295,45 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
        WHERE id = '00000000-0000-4000-8000-000000000070'`,
     );
     const callsBeforeStaleInventory = sendCalls;
-    const staleInventory = await completeNext("aruba_send_submission");
-    assert.equal(staleInventory.errorCode, "ARUBA_INVENTORY_BLOCKED");
+    const staleInventory = await runNext("aruba_send_submission");
+    assert.equal(staleInventory.result.continuationPending, true);
     assert.equal(sendCalls, callsBeforeStaleInventory);
+    assert.equal(
+      (
+        await pool.query(
+          `SELECT count(*) FROM aruba_submission_attempts
+      WHERE submission_id = $1`,
+          [staleInventory.job.payload.submissionId],
+        )
+      ).rows[0].count,
+      "0",
+    );
+    assert.equal(
+      (
+        await pool.query(`SELECT status FROM aruba_submissions WHERE id = $1`, [
+          staleInventory.job.payload.submissionId,
+        ])
+      ).rows[0].status,
+      "SEND_PENDING",
+    );
+    assert.equal(
+      (
+        await pool.query(`SELECT count(*) FROM jobs WHERE type IN
+      ('aruba_backfill_inventory', 'aruba_sync_inventory') AND status = 'PENDING'`)
+      ).rows[0].count,
+      "1",
+    );
+    assert.equal(await yieldJob(staleInventory.job, staleInventory.result, 0), true);
     await pool.query(
       `UPDATE aruba_sync_runs SET completed_at = now(), full_scan_completed_at = now()
        WHERE id = '00000000-0000-4000-8000-000000000070'`,
     );
+
+    await pool.query(`UPDATE jobs SET status = 'COMPLETED', completed_at = now()
+      WHERE type IN ('aruba_backfill_inventory', 'aruba_sync_inventory') AND status = 'PENDING'`);
+    assert.equal((await completeNext("aruba_send_submission")).accepted, true);
+    assert.equal(sendCalls, callsBeforeStaleInventory + 1);
+    assert.equal(sendAttempts.get("INVENTARIO"), 1);
 
     await createBatch(["BLOCCATO"], 1008);
     getConfig().ARUBA_SUBMISSION_ENABLED = false;
@@ -365,7 +397,7 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
       "SELECT count(*)::integer AS count FROM audit_events WHERE action = 'ARUBA_API_SEND_UNKNOWN'",
     );
     assert.equal(unknownAudits.rows[0]!.count, 3);
-    assert.equal(sendCalls, 7);
+    assert.equal(sendCalls, 8);
 
     const collisionBatch = await createBatch(["ORDINECONFLITTO"], 1012);
     await pool.query(

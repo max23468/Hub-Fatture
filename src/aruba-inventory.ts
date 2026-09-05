@@ -12,13 +12,20 @@ export interface ArubaApprovalInventoryState {
  * Per approvare o inviare, l'inventario canonico deve inoltre avere al massimo cinque minuti:
  * la stessa regola alimenta proiezione UI, transazione di approvazione e pre-invio.
  */
-export function arubaInventoryBlocksAllApprovals(health: ArubaApprovalInventoryState) {
-  return (
-    health.activeSession ||
+export function arubaInventoryApprovalState(
+  health: ArubaApprovalInventoryState,
+): "CHECKING" | "BLOCKED" | "REFRESH_REQUIRED" | "READY" {
+  if (health.activeSession) return "CHECKING";
+  if (health.blockingReason === "FAILURE" || health.uncertainRemoteStates > 0) return "BLOCKED";
+  if (
     health.blockingReason === "NEVER" ||
     health.blockingReason === "STALE" ||
-    health.blockingReason === "FAILURE" ||
-    (health.ageMinutes ?? Infinity) > 5 ||
-    health.uncertainRemoteStates > 0
-  );
+    (health.ageMinutes ?? Infinity) > 5
+  )
+    return "REFRESH_REQUIRED";
+  return "READY";
+}
+
+export function arubaInventoryBlocksAllApprovals(health: ArubaApprovalInventoryState) {
+  return arubaInventoryApprovalState(health) !== "READY";
 }

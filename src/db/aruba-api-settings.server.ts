@@ -392,7 +392,7 @@ export async function setArubaApiControls(
   });
 }
 
-export async function requestArubaApiSync(actor: ArubaApiActor) {
+export async function requestArubaApiSync(actor?: ArubaApiActor) {
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:ARUBA'))");
     const current = await connection(client, true);
@@ -417,18 +417,19 @@ export async function requestArubaApiSync(actor: ArubaApiActor) {
        VALUES ($1, jsonb_build_object('requestedBy', $2::text),
          greatest(now(), $3::timestamptz + interval '61 seconds'))
        ON CONFLICT DO NOTHING RETURNING id`,
-      [type, String(actor.id), current.credentials_verified_at],
+      [type, actor ? String(actor.id) : null, current.credentials_verified_at],
     );
-    await writeAudit(client, {
-      actorType: "ADMIN",
-      actorId: String(actor.id),
-      action: "ARUBA_API_SYNC_REQUESTED",
-      eventClass: "OPERATIONAL",
-      entityType: "CONNECTION",
-      entityId: current.id,
-      metadata: { provider: "ARUBA" },
-      requestId: actor.requestId,
-    });
+    if (inserted.rows[0])
+      await writeAudit(client, {
+        actorType: actor ? "ADMIN" : "SYSTEM",
+        actorId: actor ? String(actor.id) : undefined,
+        action: "ARUBA_API_SYNC_REQUESTED",
+        eventClass: "OPERATIONAL",
+        entityType: "CONNECTION",
+        entityId: current.id,
+        metadata: { provider: "ARUBA" },
+        requestId: actor?.requestId ?? "aruba-inventory-before-send",
+      });
     return { queued: Boolean(inserted.rows[0]), jobId: inserted.rows[0]?.id ?? null };
   });
 }

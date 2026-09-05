@@ -337,7 +337,6 @@ export async function dashboardSummary() {
       `WITH projected_open_cases AS MATERIALIZED (
          SELECT billing_cases.id,
                 ${openBillingCasePoolSql(
-                  "false",
                   "billing_cases",
                   standardInvoiceApprovalCandidateSql(
                     "billing_cases",

@@ -1,7 +1,5 @@
 import type { Route } from "./+types/order-approval-candidates";
 
-import { arubaInventoryBlocksAllApprovals } from "../../src/aruba-inventory.ts";
-import { getArubaInventoryHealth } from "../../src/db/aruba-inventory-health.server.ts";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
 import { listMassApprovalCandidates } from "../../src/db/document-mass-approval.server.ts";
 import { getArubaSettings } from "../../src/db/aruba.server.ts";
@@ -24,14 +22,12 @@ export async function loader({ request }: Route.LoaderArgs) {
     } satisfies MassApprovalData);
   }
 
-  const [arubaInventory, approvalCandidates, arubaSettings] = await Promise.all([
-    getArubaInventoryHealth(),
+  const [approvalCandidates, arubaSettings] = await Promise.all([
     listMassApprovalCandidates(),
     getArubaSettings(),
   ]);
-  const approvalsGloballyBlocked = arubaInventoryBlocksAllApprovals(arubaInventory);
   return Response.json({
-    approvalCandidates: approvalsGloballyBlocked ? [] : approvalCandidates,
+    approvalCandidates,
     arubaMode: arubaSettings.effectiveMode,
     arubaConfiguredMode: arubaSettings.mode.value,
     arubaDowngradeRequired: arubaSettings.mode.value !== arubaSettings.effectiveMode,

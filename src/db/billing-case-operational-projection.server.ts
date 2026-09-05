@@ -10,7 +10,6 @@ export type OpenBillingCasePool = "APPROVABLE" | "PENDING_PAYMENT" | "REQUIRES_A
 
 export const openBillingCaseReasonCodes = [
   "PENDING_PAYMENT",
-  "ARUBA_INVENTORY_BLOCKED",
   "ARUBA_POTENTIAL_MATCH",
   "CUSTOMER_INCOMPLETE",
   "CUSTOMER_MISMATCH",
@@ -31,13 +30,11 @@ export interface OpenBillingCaseProjection {
 }
 
 export const openBillingCasePoolSql = (
-  approvalsGloballyBlockedSql: string,
   billingCaseAlias = "billing_cases",
   approvalCandidateSql = billingCaseApprovalCandidateSql(billingCaseAlias),
 ) => `CASE
   WHEN ${billingCasePendingPaymentSql(billingCaseAlias)} THEN 'PENDING_PAYMENT'
-  WHEN NOT ${approvalsGloballyBlockedSql}
-    AND ${approvalCandidateSql} THEN 'APPROVABLE'
+  WHEN ${approvalCandidateSql} THEN 'APPROVABLE'
   ELSE 'REQUIRES_ACTION'
 END`;
 
@@ -46,13 +43,10 @@ END`;
  * L'array non è uno stato fiscale: è una proiezione ricalcolata per spiegare il pool.
  */
 export const openBillingCaseReasonCodesSql = (
-  approvalsGloballyBlockedSql: string,
   billingCaseAlias = "billing_cases",
 ) => `array_remove(ARRAY[
   CASE WHEN ${billingCasePendingPaymentSql(billingCaseAlias)}
     THEN 'PENDING_PAYMENT' END,
-  CASE WHEN ${approvalsGloballyBlockedSql}
-    THEN 'ARUBA_INVENTORY_BLOCKED' END,
   CASE WHEN ${arubaPotentialMatchSql}
     THEN 'ARUBA_POTENTIAL_MATCH' END,
   CASE WHEN coalesce((${billingCaseAlias}.customer_snapshot_json ->> 'reviewRequired')::boolean, true)

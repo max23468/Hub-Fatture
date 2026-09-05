@@ -177,7 +177,7 @@ export const copy = {
     documentsInDay: (count: number, date: string) =>
       `${count} ${count === 1 ? "documento emesso" : "documenti emessi"} ${date}`,
     importedOrders: "Ordini importati",
-    readyPreparations: "Preparazioni approvabili",
+    readyPreparations: "Preparazioni pronte",
     controlsToResolve: "Controlli da risolvere",
     controlsDetails: (blocking: number, important: number, ordinary: number) => [
       `${blocking} bloccanti`,
@@ -245,15 +245,15 @@ export const copy = {
     preparation: "Preparazione fattura",
     preparationContext: "Preparazione",
     preparationListTitle: "Preparazioni fattura",
-    approvablePreparationListTitle: "Preparazioni approvabili",
+    approvablePreparationListTitle: "Preparazioni pronte",
     pendingPreparationListTitle: "Preparazioni con pagamento in attesa",
     pendingOrderListTitle: "Ordini con pagamento in attesa",
     preparationListHelp:
       "Apri una preparazione per controllare dati, anomalie e passaggi successivi.",
     pendingPreparationListHelp:
-      "Queste preparazioni passeranno automaticamente fra le approvabili o nei controlli quando il pagamento sarà acquisito.",
+      "Queste preparazioni passeranno automaticamente fra le pronte o nei controlli quando il pagamento sarà acquisito.",
     preparationPoolLabels: {
-      APPROVABLE: "Approvabile",
+      APPROVABLE: "Pronta",
       PENDING_PAYMENT: "Pagamento in attesa",
       REQUIRES_ACTION: "Da risolvere",
     } as Record<string, string>,
@@ -279,10 +279,8 @@ export const copy = {
     nothingToInvoice: "Niente da fatturare",
     noPendingPreparations: "Nessun pagamento in attesa",
     preparationEmptyHelp:
-      "Qui compaiono soltanto le preparazioni che possono essere approvate adesso.",
+      "Qui compaiono le preparazioni pronte. La verifica Aruba avviene alla conferma dell’approvazione.",
     pendingPreparationEmptyHelp: "Nessun ordine o preparazione è in attesa.",
-    approvalsGloballyBlocked:
-      "Nessuna preparazione è approvabile finché il controllo globale dell’inventario Aruba non viene risolto.",
     cancelledOrders: "Ordini annullati o rimborsati",
     noCancelledOrders: "Nessun ordine annullato",
     noOrders: "Nessun ordine",
@@ -488,7 +486,7 @@ export const copy = {
     reactivate: "Riattiva preparazione",
     reviewWarning: "Prima di proseguire, controlla i dati indicati come incompleti o modificati.",
     paymentPendingWarning:
-      "Questa preparazione passerà automaticamente fra le approvabili o nei controlli quando il pagamento sarà acquisito.",
+      "Questa preparazione passerà automaticamente fra le pronte o nei controlli quando il pagamento sarà acquisito.",
     notTransmittedDefault: "Questa preparazione non deve essere trasmessa.",
     changesTitle: "Aggiornamenti ricevuti",
     changesIntro: "I dati precedenti restano disponibili nel registro per il controllo.",
@@ -639,18 +637,25 @@ export const copy = {
       `La modalità ${configuredMode === "AUTOMATIC_AFTER_APPROVAL" ? "automatica" : "con conferma"} non è disponibile: confermo di creare soltanto il documento, senza trasmissione Aruba.`,
     irreversibleNumbering:
       "Con l’approvazione viene assegnato automaticamente il prossimo numero fiscale disponibile. Il numero sarà definitivo e non potrà essere riutilizzato per un altro documento.",
-    confirmApproval:
-      "Confermo esplicitamente questo destinatario, questo totale e l’assegnazione irreversibile del numero fiscale.",
     approve: "Approva fattura",
     arubaInventoryTitle: "Stato inventario Aruba",
     arubaInventoryUpdated: (updatedAt: string) => `ultima sincronizzazione ${updatedAt}`,
     arubaInventoryNever: "nessuna sincronizzazione completata",
+    inventoryApprovalStates: {
+      READY: "Verifica Aruba aggiornata.",
+      CHECKING: "Verifica Aruba in corso. Puoi continuare a preparare le fatture.",
+      REFRESH_REQUIRED: "Aruba verrà aggiornato alla conferma, prima di approvare.",
+      BLOCKED:
+        "L’inventario Aruba richiede un intervento. Puoi preparare le fatture, ma l’approvazione resta sospesa.",
+    },
+    inventoryChecking:
+      "Verifica Aruba prima dell’approvazione. Attendi: può richiedere circa un minuto.",
+    inventoryWaitExpired:
+      "La verifica richiede più tempo. L’attesa automatica è terminata: controlla lo stato Aruba e riprova.",
     arubaInventoryWarningHelp:
-      "Puoi approvare questa fattura. Aggiorna l’inventario separatamente dalla Dashboard appena possibile.",
+      "I controlli specifici di questa preparazione restano necessari prima dell’approvazione.",
     arubaInventoryBlockingHelp:
-      "La preparazione è completa, ma per sicurezza l’approvazione resta bloccata finché non aggiorni o risolvi l’inventario dalla Dashboard.",
-    arubaInventoryApprovalBlocked:
-      "L’approvazione è sospesa dallo stato dell’inventario Aruba. Gestisci la sincronizzazione dalla Dashboard, poi torna qui.",
+      "Puoi continuare a preparare la fattura. Alla conferma attendiamo una verifica Aruba aggiornata; eventuali problemi devono essere risolti prima della numerazione.",
     openDashboard: "Controlla dalla Dashboard",
   },
   documents: {

@@ -71,6 +71,7 @@ export const errorCatalog = {
   ARUBA_INVENTORY_CONFLICT: "Aruba ha restituito dati incompatibili per lo stesso documento.",
   ARUBA_PROFILE_CONFLICT:
     "Il documento Aruba non coincide con il profilo fiscale o con il caso locale.",
+  ARUBA_INVENTORY_REFRESHING: "Verifica Aruba prima dell’approvazione. Attendi il completamento.",
   ARUBA_INVENTORY_BLOCKED:
     "L’inventario Aruba non è abbastanza recente o contiene verifiche irrisolte.",
   ARUBA_API_BUDGET_EXHAUSTED:

@@ -1396,7 +1396,7 @@ test(
       const blockedOutcome = await blockedApproval;
       assert.ok(
         blockedOutcome.error instanceof AppError &&
-          blockedOutcome.error.code === "ARUBA_INVENTORY_BLOCKED",
+          blockedOutcome.error.code === "ARUBA_INVENTORY_REFRESHING",
       );
       assert.equal(blockedOutcome.value, null);
       await database.getPool().query(
@@ -1404,6 +1404,94 @@ test(
          SET completed_at = now(), full_scan_completed_at = now()
          WHERE id = '00000000-0000-4000-8000-000000000301'`,
       );
+      const inventory = await import("./aruba-inventory-health.server.ts");
+      await database.getPool().query(`UPDATE connections SET
+        encrypted_credentials = 'synthetic-encrypted', status = 'CONNECTED',
+        api_paused = false, inbound_enabled = true, credentials_verified_at = now() - interval '2 minutes'
+        WHERE provider = 'ARUBA' AND environment = 'DEVELOPMENT';
+        UPDATE aruba_sync_runs SET completed_at = now() - interval '9 minutes'`);
+      const confirmedDraft = {
+        caseRevision: blockedProjection.caseRevision,
+        draftVersion: blockedProjection.draftVersion,
+        projectionSha256: blockedProjection.projectionSha256,
+        confirmApproval: true,
+        confirmPending: false,
+        confirmDifference: false,
+        emailChoice: "SKIP",
+        emailModeVersion: blockedProjection.customerEmail.version,
+      };
+      const actor = { id: 1, canApprove: true, requestId: "approval-on-demand" };
+      const refreshing = (error: unknown) =>
+        error instanceof AppError && error.code === "ARUBA_INVENTORY_REFRESHING";
+      await Promise.all([
+        assert.rejects(documents.approveInvoice(blockedCase.id, confirmedDraft, actor), refreshing),
+        assert.rejects(
+          documents.approveInvoices(
+            [
+              `${blockedCase.id}:${confirmedDraft.caseRevision}:${confirmedDraft.draftVersion}:${confirmedDraft.projectionSha256}`,
+            ],
+            actor,
+            true,
+            "DOCUMENT_ONLY",
+            { [blockedCase.id]: "SKIP" },
+            confirmedDraft.emailModeVersion,
+          ),
+          refreshing,
+        ),
+      ]);
+      assert.equal(
+        (
+          await database.getPool().query(`SELECT count(*) FROM jobs
+        WHERE type IN ('aruba_sync_inventory', 'aruba_backfill_inventory') AND status = 'PENDING'`)
+        ).rows[0].count,
+        "1",
+      );
+      assert.equal(
+        (
+          await database.getPool().query(`SELECT count(*) FROM audit_events
+        WHERE action = 'ARUBA_API_SYNC_REQUESTED'`)
+        ).rows[0].count,
+        "1",
+      );
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(*) FROM documents
+        WHERE billing_case_id = $1`,
+            [blockedCase.id],
+          )
+        ).rows[0].count,
+        "0",
+      );
+      await database.getPool().query(`UPDATE aruba_sync_runs SET status = 'RUNNING',
+        lease_expires_at = now() + interval '5 minutes'`);
+      await assert.rejects(inventory.ensureFreshArubaInventory(actor), refreshing);
+      assert.equal(
+        (
+          await database.getPool().query(`SELECT count(*) FROM audit_events
+        WHERE action = 'ARUBA_API_SYNC_REQUESTED'`)
+        ).rows[0].count,
+        "1",
+      );
+      await database.getPool().query(`UPDATE aruba_sync_runs SET status = 'FAILED',
+        last_error_code = 'PROVIDER_UNAVAILABLE'`);
+      await assert.rejects(
+        inventory.ensureFreshArubaInventory(actor),
+        (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_BLOCKED",
+      );
+      await database.getPool().query(`UPDATE aruba_sync_runs SET status = 'COMPLETED',
+        completed_at = now(), full_scan_completed_at = now(), last_error_code = NULL;
+        UPDATE jobs SET status = 'COMPLETED', completed_at = now()
+        WHERE type IN ('aruba_sync_inventory', 'aruba_backfill_inventory') AND status = 'PENDING'`);
+      await database
+        .getPool()
+        .query(`UPDATE billing_cases SET revision = revision + 1 WHERE id = $1`, [blockedCase.id]);
+      await assert.rejects(
+        documents.approveInvoice(blockedCase.id, confirmedDraft, actor),
+        (error) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+      );
+      await inventory.ensureFreshArubaInventory(actor);
+
       const blockedOrderId = (
         await database
           .getPool()

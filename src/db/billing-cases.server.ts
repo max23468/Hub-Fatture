@@ -587,7 +587,6 @@ export async function listBillingCases(
     statuses?: string[];
     excludePendingPayments?: boolean;
     operationalPool?: OpenBillingCasePool;
-    approvalsGloballyBlocked?: boolean;
     page?: unknown;
     sort?: { key: BillingCaseListSortKey; direction: SortDirection };
   } = {},
@@ -595,8 +594,8 @@ export async function listBillingCases(
   const sort = filters.sort ?? { key: "data", direction: "desc" };
   const orderBy = billingCaseListSortSql[sort.key];
   const direction = sort.direction === "asc" ? "ASC" : "DESC";
-  const operationalPoolSql = openBillingCasePoolSql("$4::boolean");
-  const reasonCodesSql = openBillingCaseReasonCodesSql("$4::boolean");
+  const operationalPoolSql = openBillingCasePoolSql();
+  const reasonCodesSql = openBillingCaseReasonCodesSql();
   // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
   // i valori della richiesta restano nei parametri $1-$2.
   // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
@@ -628,9 +627,9 @@ export async function listBillingCases(
      LEFT JOIN orders ON orders.billing_case_id = billing_cases.id
      WHERE ($1::text[] IS NULL OR billing_cases.status = ANY($1))
        AND (NOT $3::boolean OR NOT ${billingCasePendingPaymentSql()})
-       AND ($5::text IS NULL OR (
+       AND ($4::text IS NULL OR (
          ${openBillingCaseSql()}
-         AND ${operationalPoolSql} = $5::text
+         AND ${operationalPoolSql} = $4::text
        ))
      GROUP BY billing_cases.id
      ORDER BY ${orderBy} ${direction} NULLS LAST,
@@ -640,7 +639,6 @@ export async function listBillingCases(
       filters.statuses?.length ? filters.statuses : null,
       pageOffset(filters.page),
       Boolean(filters.excludePendingPayments),
-      Boolean(filters.approvalsGloballyBlocked),
       filters.operationalPool ?? null,
     ],
   );
@@ -656,18 +654,17 @@ export async function listBillingCases(
 
 export async function getOpenBillingCaseProjection(
   id: string,
-  approvalsGloballyBlocked: boolean,
 ): Promise<OpenBillingCaseProjection | null> {
   if (!isDatabaseId(id)) return null;
   const result = await getPool().query<{
     operational_pool: OpenBillingCasePool;
     reason_codes: string[];
   }>(
-    `SELECT ${openBillingCasePoolSql("$2::boolean")} AS operational_pool,
-            ${openBillingCaseReasonCodesSql("$2::boolean")} AS reason_codes
+    `SELECT ${openBillingCasePoolSql()} AS operational_pool,
+            ${openBillingCaseReasonCodesSql()} AS reason_codes
      FROM billing_cases
      WHERE billing_cases.id = $1 AND ${openBillingCaseSql()}`,
-    [id, approvalsGloballyBlocked],
+    [id],
   );
   return result.rows[0] ? normalizeOpenBillingCaseProjection(result.rows[0]) : null;
 }

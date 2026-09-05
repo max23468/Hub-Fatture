@@ -54,8 +54,12 @@ dell’invio, kill switch attivo e rilettura di tutti i prerequisiti. I riferime
 dry-run Production descrivono esclusivamente la qualificazione storica e non sono un contratto
 operativo corrente.
 
-L’approvazione resta bloccata durante una sincronizzazione Aruba attiva o con inventario più vecchio
-di cinque minuti. La numerazione usa il massimo tra documenti locali e inventario remoto canonico;
+La preparazione e il conteggio delle preparazioni pronte non dipendono dalla sincronizzazione Aruba.
+Alla conferma, prima di numerare, l’approvazione richiede un inventario non più vecchio di cinque
+minuti e nessuna sincronizzazione attiva: se necessario accoda una lettura canonica o attende
+quella esistente. La conferma originale viene ripresentata solo nella pagina aperta, per al massimo
+due minuti, senza aggiornare revisione o hash; variazioni dei dati richiedono una nuova conferma.
+Errori, pausa e stati remoti incerti impediscono la numerazione. La numerazione usa il massimo tra documenti locali e inventario remoto canonico;
 prima della rete, un secondo controllo blocca qualunque numero fiscale già presente in remoto.
 L’identità di un documento remoto è il suo ID provider: numero fiscale o hash coincidenti non
 autorizzano mai la fusione di due ID remoti distinti e aprono invece un conflitto da riconciliare.
@@ -1047,7 +1051,7 @@ browser.
 
 I paragrafi seguenti documentano esclusivamente il percorso qualificato in M5 e poi ritirato in
 M11. Non sono istruzioni operative né descrivono codice eseguibile presente nel repository. Il
-ciclo corrente usa inventario API dal 1° luglio 2026, polling coordinato con la freschezza di approvazione, rilettura mirata dei
+ciclo corrente usa inventario API dal 1° luglio 2026, polling ogni dieci minuti con verifica su richiesta alla conferma, rilettura mirata dei
 non terminali e scansione completa periodica sullo stesso orizzonte.
 
 Il percorso M5 usava un preferito presidiato, un ponte autenticato e sessioni temporanee di
@@ -1358,7 +1362,7 @@ Su mobile la barra inferiore non viene mostrata. Un pulsante menu allineato a si
 
 ### 13.2 Dashboard
 
-La Dashboard non è una seconda coda. Mostra soltanto tre metriche principali, basate sugli stessi predicati delle pagine di destinazione: preparazioni realmente approvabili, controlli aperti da risolvere e pagamenti pendenti. Quest’ultima metrica comprende sia le preparazioni sospese sia gli ordini ancora fatturabili senza preparazione e con incasso aperto: conta una voce per preparazione e una per ogni ordine non ancora rappresentato da una preparazione. Il conteggio `Controlli` è unico e apre la coda canonica. Ogni preparazione aperta appartiene a un solo pool operativo: il pagamento pendente ha precedenza; senza pagamenti pendenti, la preparazione è approvabile soltanto se supera tutti i gate correnti, altrimenti deve avere almeno una causa visibile nella preparazione o nei `Controlli`. Match Aruba riferibili a candidate precise non azzerano le preparazioni sane; soltanto un problema d’inventario globale sospende tutte le approvazioni.
+La Dashboard non è una seconda coda. Mostra soltanto tre metriche principali, basate sugli stessi predicati delle pagine di destinazione: preparazioni pronte per la conferma, controlli aperti da risolvere e pagamenti pendenti. Quest’ultima metrica comprende sia le preparazioni sospese sia gli ordini ancora fatturabili senza preparazione e con incasso aperto: conta una voce per preparazione e una per ogni ordine non ancora rappresentato da una preparazione. Il conteggio `Controlli` è unico e apre la coda canonica. Ogni preparazione aperta appartiene a un solo pool operativo: il pagamento pendente ha precedenza; senza pagamenti pendenti, la preparazione è pronta soltanto se supera i controlli locali e quelli specifici della candidata, altrimenti deve avere almeno una causa visibile nella preparazione o nei `Controlli`. Match Aruba riferibili a candidate precise non azzerano le preparazioni sane; un problema d’inventario globale sospende le approvazioni ma non nasconde le preparazioni pronte. Il conteggio non viene azzerato durante una sincronizzazione o per la sola età dell’inventario: lo stato della verifica viene indicato separatamente.
 
 Il box `Stato operativo` riassume lo stato tecnico automatico e usa tre domini: `Acquisizione dati`, `Elaborazioni` e `Generazione documenti`. Non mostra ultimo o prossimo controllo. Il box `Collegamenti` sottostante conserva il dettaglio di Shopify, eBay e Aruba, compresa la freschezza; il riepilogo superiore non introduce un quarto dominio `Servizi esterni`. Restano visibili i documenti emessi oggi/mese e il grafico degli ultimi sette giorni.
 
@@ -1371,7 +1375,7 @@ riconciliare non cambiano questo stato e appartengono alla coda `Controlli`.
 
 ### 13.3 Ordini
 
-- Viste Tutti, Da fatturare, In attesa e Annullati. `Da fatturare` mostra soltanto preparazioni realmente approvabili; `In attesa` mostra sia gli ordini ancora fatturabili con pagamento non acquisito e senza preparazione, sia le preparazioni sospese per lo stesso motivo, in gruppi distinti e senza duplicati; le altre preparazioni aperte sono raggiungibili dai `Controlli` che ne spiegano il blocco.
+- Viste Tutti, Da fatturare, In attesa e Annullati. `Da fatturare` mostra le preparazioni pronte per la conferma, anche durante una verifica Aruba; `In attesa` mostra sia gli ordini ancora fatturabili con pagamento non acquisito e senza preparazione, sia le preparazioni sospese per lo stesso motivo, in gruppi distinti e senza duplicati; le altre preparazioni aperte sono raggiungibili dai `Controlli` che ne spiegano il blocco.
 - Filtri per piattaforma, stato, data, trigger, pagamento.
 - Ricerca per ID ordine, cliente, e-mail, codice fiscale/P.IVA.
 - Vista del dato originale e normalizzato.
@@ -2293,7 +2297,7 @@ Valori di routine da calibrare:
 
 - Shopify recovery sync: ogni 10-15 minuti.
 - eBay sync: ogni 10-15 minuti.
-- Aruba inventory: inventario dal 1° luglio 2026, incrementale pianificato prima della scadenza della freschezza di approvazione, rilettura mirata dei non terminali e scansione completa mensile sullo stesso orizzonte; nuovo stream, cursore assente o incongruenza forzano una nuova scansione completa.
+- Aruba inventory: inventario dal 1° luglio 2026, incrementale ogni dieci minuti e verifica su richiesta prima dell’approvazione o dell’invio, rilettura mirata dei non terminali e scansione completa mensile sullo stesso orizzonte; nuovo stream, cursore assente o incongruenza forzano una nuova scansione completa.
 - Aruba post-invio: primo readback subito dopo `ARUBA_ACCEPTED`, poi ogni 15 minuti fino allo stato
   terminale o a un controllo operativo; il comando manuale usa la medesima coda.
 - Pulizia sessioni: giornaliera.
