@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.16
+
+- Le collisioni fra due documenti Aruba con identità e stato noti, dopo il confronto con gli ordini, bloccano soltanto le preparazioni coinvolte. Le fatture estranee restano approvabili; il numero duplicato, gli stati realmente incerti e le verifiche incomplete restano bloccati anche prima dell’invio.
+- Controlli distingue l’identità fiscale duplicata da una possibile fattura da collegare, conserva i candidati degli ordini e mantiene aperto il conflitto senza riconciliare o materializzare automaticamente i documenti coinvolti.
+
 ## 1.3.15
 
 - Il monitoraggio delle fatture e le ricerche Aruba attendono il completamento dell’inventario sullo stesso account. Se la sincronizzazione inizia durante una lettura, il controllo riprende dalla coda senza segnalare un guasto della connessione né modificare lo stato fiscale.

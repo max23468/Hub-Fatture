@@ -16,6 +16,7 @@ import {
   authenticateConfiguredArubaApiForOutbound,
   refreshConfiguredArubaApiAfterUnauthorized,
 } from "./aruba-api-connection.server.ts";
+import { arubaPotentialMatchSql } from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
 import { assertJobLease, renewLockedJobLease } from "./connector-jobs.server.ts";
 import type { ClaimedJob } from "./connector-types.server.ts";
@@ -217,6 +218,7 @@ async function assertSendStillAuthorized(context: SendContext, job: ClaimedJob) 
         duplicate_submission: boolean;
         duplicate_remote_document: boolean;
         duplicate_fiscal_identity: boolean;
+        aruba_potential_match: boolean;
         duplicate_job: boolean;
       }
     >(
@@ -253,6 +255,9 @@ async function assertSendStillAuthorized(context: SendContext, job: ClaimedJob) 
                   AND btrim(remote.fiscal_number) ~ '^[0-9]+$'
                   AND (btrim(remote.fiscal_number))::integer = documents.fiscal_number)
                 AS duplicate_fiscal_identity,
+              EXISTS (SELECT 1 FROM billing_cases
+                WHERE billing_cases.id = documents.billing_case_id AND ${arubaPotentialMatchSql})
+                AS aruba_potential_match,
               EXISTS (SELECT 1 FROM jobs AS duplicate_job
                 WHERE duplicate_job.type = 'aruba_send_submission'
                   AND duplicate_job.payload_json ->> 'submissionId' = submissions.id::text
@@ -305,6 +310,7 @@ async function assertSendStillAuthorized(context: SendContext, job: ClaimedJob) 
       row.duplicate_submission ||
       row.duplicate_remote_document ||
       row.duplicate_fiscal_identity ||
+      row.aruba_potential_match ||
       row.duplicate_job ||
       !account.success ||
       !accountFresh ||

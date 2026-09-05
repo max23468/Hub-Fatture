@@ -142,7 +142,9 @@ async function recordArubaIdentityCollisions(
        FROM unnest($1::bigint[]) AS remote_id
        ON CONFLICT (remote_document_id) DO UPDATE SET
          status = 'UNKNOWN_REMOTE_STATE', method = 'NONE', matcher_version = $2,
-         signals_json = EXCLUDED.signals_json, candidates_json = '[]', updated_at = now()`,
+         signals_json = aruba_document_matches.signals_json || EXCLUDED.signals_json
+           || jsonb_build_object('identityCollisionCandidatesVerified', false),
+         updated_at = now()`,
       [[collision.id, remoteDocumentId], ARUBA_MATCHER_VERSION, collision.collision_key],
     );
   }
@@ -319,9 +321,12 @@ export async function ingestParsedArubaPage(
         await client.query(
           `INSERT INTO aruba_document_matches
               (remote_document_id, status, method, matcher_version, signals_json, candidates_json)
-             VALUES ($1, 'UNKNOWN_REMOTE_STATE', 'NONE', $2, '{}', '[]')
+             VALUES ($1, 'UNKNOWN_REMOTE_STATE', 'NONE', $2,
+                     '{"remoteObservationConflict":true}', '[]')
              ON CONFLICT (remote_document_id) DO UPDATE SET
-               status = 'UNKNOWN_REMOTE_STATE', method = 'NONE', updated_at = now()`,
+               status = 'UNKNOWN_REMOTE_STATE', method = 'NONE',
+               signals_json = aruba_document_matches.signals_json
+                 || jsonb_build_object('remoteObservationConflict', true), updated_at = now()`,
           [current.id, ARUBA_MATCHER_VERSION],
         );
       }
@@ -451,7 +456,7 @@ export async function ingestParsedArubaPage(
         JSON.stringify(remote),
       ],
     );
-    if (!conflicted) {
+    if (!conflicted || (await hasUnresolvedIdentityCollision(client, storedId!))) {
       const official = await loadLatestOfficialXml(client, storedId!);
       await reconcileRemoteDocument(
         client,
@@ -459,7 +464,7 @@ export async function ingestParsedArubaPage(
         official ? officialEvidence(remote, official.xml) : remote,
         Boolean(official),
       );
-      if (isEmissionConfirmed(remote.status)) {
+      if (!conflicted && isEmissionConfirmed(remote.status)) {
         await materializeLatestOfficialXml(client, storedId!);
       }
     }

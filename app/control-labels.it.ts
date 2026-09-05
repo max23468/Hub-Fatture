@@ -20,6 +20,7 @@ export const controlKindsCopy = {
   CUSTOMER_IDENTITY: "Identità cliente",
   CONNECTOR_JOB_FAILED: "Sincronizzazioni",
   SHOPIFY_PRIVACY_REQUEST: "Privacy",
+  ARUBA_IDENTITY_CONFLICT: "Identità fiscale Aruba duplicata",
   ARUBA_REMOTE_MATCH: "Inventario Aruba",
   ARUBA_AMOUNT_MISMATCH: "Importi Aruba discordanti",
   ARUBA_EXTERNAL_EVIDENCE: "Conferme esterne",

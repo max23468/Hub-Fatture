@@ -7,6 +7,7 @@ import { arubaInventoryBlocksAllApprovals } from "../aruba-inventory.ts";
 import { AppError } from "../errors.ts";
 import {
   arubaBlockingMatchPredicate,
+  arubaBoundedIdentityCollisionPredicate,
   getArubaInventoryHealth,
 } from "./aruba-inventory-health.server.ts";
 import {
@@ -17,6 +18,7 @@ import {
   lockArubaInventory,
   type ArubaReadActor,
 } from "./aruba-inventory-context.server.ts";
+import { arubaCaseCandidateSql } from "./billing-case-sql.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 async function requestArubaPreflight(
   input: {
@@ -229,8 +231,15 @@ export async function consumeArubaPreflight(
      JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
      WHERE remote.environment = $1 AND remote.account_reference = $2
        AND ${arubaBlockingMatchPredicate}
+       AND (NOT ${arubaBoundedIdentityCollisionPredicate} OR EXISTS (
+         SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
+         JOIN document_orders ON document_orders.document_id = $3
+         WHERE ${arubaCaseCandidateSql("candidate", "remote")}
+           AND (candidate ->> 'candidateId' = document_orders.order_id::text
+             OR candidate -> 'orderIds' ? document_orders.order_id::text)
+       ))
      LIMIT 1`,
-    [current.environment, current.account_reference],
+    [current.environment, current.account_reference, input.documentId ?? null],
   );
   if (blocker.rows[0]) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
   await client.query(

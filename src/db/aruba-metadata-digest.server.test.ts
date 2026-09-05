@@ -229,6 +229,33 @@ test("una collisione emersa aggiornando un’identità remota resta separata e b
     );
     const sessionId = "10000000-0000-4000-8000-000000000104";
     await openManualSession(client, sessionId);
+    await client.query(
+      `WITH customer AS (
+         INSERT INTO customers (kind, match_key, display_name, billing_address_json,
+           source_confidence, review_required)
+         SELECT 'PRIVATE_IT', name, name, '{}', 'TAX_ID', false
+         FROM unnest(ARRAY['Mario Sintetico', 'Paolo Estraneo']) name
+         RETURNING id, display_name
+       ), cases AS (
+         INSERT INTO billing_cases (customer_id, local_order_date, currency, status,
+           customer_snapshot_json)
+         SELECT customer.id, '2026-08-30', 'EUR', 'READY',
+           jsonb_build_object('displayName', display_name, 'reviewRequired', false)
+         FROM customer
+         RETURNING id, customer_id, customer_snapshot_json
+       )
+       INSERT INTO orders (provider, external_account_id, external_order_id, display_number,
+         created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+         payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+         raw_snapshot_json, normalized_snapshot_json)
+       SELECT 'SHOPIFY', 'collision-test', id::text,
+         CASE WHEN customer_snapshot_json ->> 'displayName' = 'Mario Sintetico'
+           THEN '#12345' ELSE '#67890' END,
+         now(), now(), '2026-08-30', 'EUR',
+         CASE WHEN customer_snapshot_json ->> 'displayName' = 'Mario Sintetico'
+           THEN 15850 ELSE 20000 END, 'PAID', 'FULFILLED', 'GROUPED',
+         customer_id, id, '{}', '{"totalsReconciled":true}' FROM cases`,
+    );
     const remote: RemoteInventoryDocument = {
       remoteId: "late-identity",
       documentType: "TD01",
@@ -236,7 +263,7 @@ test("una collisione emersa aggiornando un’identità remota resta separata e b
       series: "FPR",
       fiscalNumber: "1713",
       documentDate: "2026-08-30",
-      recipientName: "Cliente sintetico",
+      recipientName: "Mario Sintetico",
       recipientTaxId: null,
       recipientTaxIdentifiers: [],
       recipientCountryCode: "IT",
@@ -248,7 +275,7 @@ test("una collisione emersa aggiornando un’identità remota resta separata e b
       providerInvoiceNumber: "1713",
       providerObservedAt: "2026-08-30T10:00:00.000Z",
       xmlSha256: null,
-      orderReferences: [],
+      orderReferences: ["#12345"],
     };
     await ingestParsedArubaPage(
       client,
@@ -289,6 +316,89 @@ test("una collisione emersa aggiornando un’identità remota resta separata e b
         statuses: ["UNKNOWN_REMOTE_STATE", "UNKNOWN_REMOTE_STATE"],
       },
     );
+
+    const { getArubaInventoryHealth } = await import("./aruba-inventory-health.server.ts");
+    const { arubaInventoryBlocksAllApprovals } = await import("../aruba-inventory.ts");
+    const { arubaPotentialMatchSql } = await import("./billing-case-sql.server.ts");
+    assert.equal((await getArubaInventoryHealth(client)).uncertainRemoteStates, 2);
+    const original: RemoteInventoryDocument = {
+      ...remote,
+      remoteId: "already-canonical",
+      totalAmount: 9810,
+      status: "NOT_DELIVERED",
+    };
+    await client.query("UPDATE aruba_remote_documents SET metadata_digest = $2 WHERE id = $1", [
+      existing.rows[0]!.id,
+      remoteMetadataDigest(original),
+    ]);
+    await ingestParsedArubaPage(
+      client,
+      {
+        id: sessionId,
+        environment: "MOCK",
+        account_reference: "synthetic-account",
+        sourceKind: "MANUAL",
+      },
+      {
+        stream: "invoices:2026",
+        scanOrdinal: 1,
+        pageOrdinal: 2,
+        cursor: null,
+        terminal: true,
+        fullScan: false,
+        documents: [original],
+      },
+      false,
+    );
+    const health = await getArubaInventoryHealth(client);
+    assert.equal(health.conflicts, 2);
+    assert.equal(health.uncertainRemoteStates, 0);
+    assert.equal(
+      arubaInventoryBlocksAllApprovals({
+        ...health,
+        blockingReason: "CONFLICT",
+        ageMinutes: 0,
+        activeSession: false,
+      }),
+      false,
+    );
+    assert.deepEqual(
+      (
+        await client.query(
+          `SELECT ${arubaPotentialMatchSql} AS blocked FROM billing_cases ORDER BY id`,
+        )
+      ).rows,
+      [{ blocked: true }, { blocked: false }],
+    );
+    assert.equal(
+      (await client.query("SELECT count(*)::int AS count FROM documents")).rows[0].count,
+      0,
+    );
+    assert.equal(
+      (
+        await client.query(
+          "SELECT count(*)::int AS count FROM aruba_deduplication_conflicts WHERE resolved_at IS NULL",
+        )
+      ).rows[0].count,
+      1,
+    );
+
+    // Un vero stato ignoto o una controparte non confrontata riapre il blocco globale.
+    await client.query(
+      "UPDATE aruba_remote_documents SET remote_status = 'UNKNOWN' WHERE id = $1",
+      [incomplete.rows[0]!.id],
+    );
+    assert.equal((await getArubaInventoryHealth(client)).uncertainRemoteStates, 2);
+    await client.query(
+      "UPDATE aruba_remote_documents SET remote_status = 'SUBMITTED' WHERE id = $1",
+      [incomplete.rows[0]!.id],
+    );
+    await client.query(
+      `UPDATE aruba_document_matches SET signals_json = signals_json ||
+         '{"remoteObservationConflict":true}' WHERE remote_document_id = $1`,
+      [existing.rows[0]!.id],
+    );
+    assert.equal((await getArubaInventoryHealth(client)).uncertainRemoteStates, 2);
   } finally {
     client?.release();
     await pool.end();

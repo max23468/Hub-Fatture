@@ -519,7 +519,11 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
             total_amount: 12_400,
             provider_group_id: "atomic-conflict-group",
             match_status: "UNKNOWN_REMOTE_STATE",
-            signals: { providerIdentityCollision: true, collisionKey: "FISCAL_IDENTITY" },
+            signals: {
+              providerIdentityCollision: true,
+              collisionKey: "FISCAL_IDENTITY",
+              identityCollisionCandidatesVerified: true,
+            },
             conflicts: 1,
           },
         );
@@ -759,7 +763,11 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       {
         count: 1,
         match_status: "UNKNOWN_REMOTE_STATE",
-        signals: { providerIdentityCollision: true, collisionKey: "FISCAL_IDENTITY" },
+        signals: {
+          providerIdentityCollision: true,
+          collisionKey: "FISCAL_IDENTITY",
+          identityCollisionCandidatesVerified: true,
+        },
       },
     );
     const collisionNotification = Buffer.from(

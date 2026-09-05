@@ -63,6 +63,40 @@ export const arubaBlockingMatchPredicate = `(remote.remote_status <> 'REJECTED' 
   OR ${arubaConflictMatchPredicate}
 ))`;
 
+/** Una collisione resta locale solo dopo il confronto di entrambi gli ID canonici. */
+export const arubaBoundedIdentityCollisionPredicate = `(
+  matches.status = 'UNKNOWN_REMOTE_STATE'
+  AND matches.signals_json @> '{"providerIdentityCollision":true,"identityCollisionCandidatesVerified":true}'
+  AND remote.remote_status <> 'UNKNOWN'
+  AND EXISTS (
+    SELECT 1 FROM aruba_deduplication_conflicts collision
+    WHERE collision.environment = remote.environment
+      AND collision.account_reference = remote.account_reference
+      AND collision.resolved_at IS NULL
+      AND (collision.existing_remote_document_id = remote.id
+        OR collision.incoming_remote_id = remote.remote_id)
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM aruba_deduplication_conflicts collision
+    WHERE collision.environment = remote.environment
+      AND collision.account_reference = remote.account_reference
+      AND collision.resolved_at IS NULL
+      AND (collision.existing_remote_document_id = remote.id
+        OR collision.incoming_remote_id = remote.remote_id)
+      AND (SELECT count(*) FROM aruba_remote_documents member
+        JOIN aruba_document_matches member_match ON member_match.remote_document_id = member.id
+        WHERE member.environment = collision.environment
+          AND member.account_reference = collision.account_reference
+          AND (member.id = collision.existing_remote_document_id
+            OR member.remote_id = collision.incoming_remote_id)
+          AND member.remote_status <> 'UNKNOWN'
+          AND member_match.status = 'UNKNOWN_REMOTE_STATE'
+          AND member_match.signals_json @> '{"providerIdentityCollision":true,"identityCollisionCandidatesVerified":true}'
+          AND NOT coalesce((member_match.signals_json ->> 'remoteObservationConflict')::boolean, false)
+      ) <> 2
+  )
+)`;
+
 export async function getArubaInventoryHealth(
   client: pg.Pool | pg.PoolClient = getPool(),
 ): Promise<ArubaInventoryHealth> {
@@ -148,7 +182,8 @@ export async function getArubaInventoryHealth(
         WHERE remote.environment = $1 AND remote.account_reference = $2
           AND remote.document_date >= $3::date
           AND remote.remote_status <> 'REJECTED'
-          AND matches.status IN ('ERROR', 'UNKNOWN_REMOTE_STATE')) AS uncertain_remote_states,
+          AND matches.status IN ('ERROR', 'UNKNOWN_REMOTE_STATE')
+          AND NOT ${arubaBoundedIdentityCollisionPredicate}) AS uncertain_remote_states,
        (SELECT count(*) FROM aruba_remote_documents
         WHERE environment = $1 AND account_reference = $2
           AND document_date >= $3::date) AS remote_documents`,

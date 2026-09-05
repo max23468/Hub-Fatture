@@ -661,6 +661,15 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
           ],
         },
         detectedAt: remote.last_observed_at,
+        ...(remote.identity_collision
+          ? {
+              kind: "ARUBA_IDENTITY_CONFLICT",
+              title: "Identità fiscale duplicata su Aruba",
+              consequence:
+                "Due documenti Aruba distinti condividono il numero fiscale o l’XML. Verifica entrambi i documenti e i rispettivi esiti SdI prima di risolvere il conflitto. Restano bloccate le preparazioni coinvolte; una verifica incompleta blocca tutte le approvazioni.",
+              primaryAction: "Verifica conflitto Aruba",
+            }
+          : {}),
       } satisfies ControlCandidate;
     }),
     ...stored,

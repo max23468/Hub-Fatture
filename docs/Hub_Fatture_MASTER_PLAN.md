@@ -59,6 +59,10 @@ di cinque minuti. La numerazione usa il massimo tra documenti locali e inventari
 prima della rete, un secondo controllo blocca qualunque numero fiscale già presente in remoto.
 L’identità di un documento remoto è il suo ID provider: numero fiscale o hash coincidenti non
 autorizzano mai la fusione di due ID remoti distinti e aprono invece un conflitto da riconciliare.
+Una collisione fra due ID canonici con stato noto, dopo il confronto di entrambi con gli ordini,
+blocca soltanto le preparazioni coinvolte: non azzera quelle estranee. Il conflitto e il monitoraggio
+restano aperti. Una controparte mancante, uno stato realmente ignoto o dati remoti incoerenti
+mantengono invece il blocco globale; il numero duplicato resta sempre inutilizzabile.
 
 `AGENTS.md` governa il modo di lavorare, non modifica da solo il perimetro o le decisioni fiscali. README, indici e runbook devono rimandare alla fonte canonica senza duplicare intere sezioni. Se l'implementazione cambia un comportamento previsto, la stessa modifica aggiorna test e documentazione pertinente.
 

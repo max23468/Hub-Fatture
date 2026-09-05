@@ -7,7 +7,8 @@ export interface ArubaApprovalInventoryState {
 
 /**
  * I match riferibili a preparazioni precise bloccano soltanto le candidate. Restano
- * globali l'assenza o l'obsolescenza dell'inventario, i fallimenti e gli stati remoti incerti.
+ * Una collisione fra ID noti e confrontati mantiene il blocco sulle sole candidate.
+ * Restano globali l'assenza o l'obsolescenza dell'inventario, i fallimenti e gli stati remoti incerti.
  * Per approvare o inviare, l'inventario canonico deve inoltre avere al massimo cinque minuti:
  * la stessa regola alimenta proiezione UI, transazione di approvazione e pre-invio.
  */

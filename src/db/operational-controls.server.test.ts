@@ -272,6 +272,59 @@ test(
       assert.equal(retentionFailure.rows[0]!.severity, "BLOCKING");
       assert.equal(retentionFailure.rows[0]!.href, "/impostazioni#sistema");
       assert.ok(retentionFailure.rows[0]!.metadata_json.jobId);
+
+      const remote = await database.getPool().query<{ id: string }>(
+        `INSERT INTO aruba_remote_documents
+           (environment, account_reference, remote_id, document_type, fiscal_year, series,
+            fiscal_number, document_date, total_amount, remote_status,
+            remote_status_observed_at, origin, metadata_digest, last_observed_at)
+         VALUES ('MOCK', 'synthetic-aruba-account', 'identity-collision', 'TD01', 2026,
+                 'RMT', '5000', '2026-08-31', 1000, 'NOT_DELIVERED', now(),
+                 'ARUBA_EXTERNAL', repeat('c', 64), now())
+         RETURNING id::text`,
+      );
+      const remoteId = remote.rows[0]!.id;
+      await database.getPool().query(
+        `INSERT INTO aruba_document_matches
+           (remote_document_id, status, method, matcher_version, signals_json)
+         VALUES ($1, 'UNKNOWN_REMOTE_STATE', 'NONE', 1,
+                 '{"providerIdentityCollision":true,"collisionKey":"FISCAL_IDENTITY"}')`,
+        [remoteId],
+      );
+      await controls.refreshOperationalControls();
+      const collision = await controls.readOperationalControls({ kind: "ARUBA_IDENTITY_CONFLICT" });
+      assert.equal(collision.total, 1);
+      assert.equal(collision.rows[0]!.id, `ARUBA_REMOTE:${remoteId}`);
+      assert.equal(collision.rows[0]!.title, "Identità fiscale duplicata su Aruba");
+      assert.equal(collision.rows[0]!.primary_action, "Verifica conflitto Aruba");
+      assert.equal(collision.rows[0]!.severity, "BLOCKING");
+      assert.match(collision.rows[0]!.consequence, /esiti SdI/);
+      assert.deepEqual(collision.rows[0]!.metadata_json.candidates, []);
+      assert.equal(
+        (await controls.readOperationalControls({ kind: "ARUBA_REMOTE_MATCH" })).total,
+        0,
+      );
+
+      await database.getPool().query(
+        `UPDATE aruba_document_matches SET status = 'UNMATCHED', signals_json = '{}'
+         WHERE remote_document_id = $1`,
+        [remoteId],
+      );
+      await controls.refreshOperationalControls();
+      assert.equal(
+        (await controls.readOperationalControls({ kind: "ARUBA_IDENTITY_CONFLICT" })).total,
+        0,
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT state FROM operational_controls WHERE id = $1", [
+              `ARUBA_REMOTE:${remoteId}`,
+            ])
+        ).rows[0].state,
+        "RESOLVED",
+      );
     } finally {
       const database = await import("./client.server.ts");
       await database.closePool();

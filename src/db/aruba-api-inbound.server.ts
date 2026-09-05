@@ -456,9 +456,11 @@ async function persistCanonicalPageContents(
       (requestedFiles.has(`${remoteId}:ARUBA_XML`) || requestedFiles.has(`${remoteId}:ARUBA_P7M`)));
   const groupFiles = new Map(
     documents.flatMap((document) =>
-      document.groupFiles
-        .filter((file) => wasRequested(document.remote.remoteId, file.kind))
-        .map((file) => [`${document.providerGroupId}:${file.kind}:${file.sha256}`, file] as const),
+      document.groupFiles.flatMap((file) =>
+        wasRequested(document.remote.remoteId, file.kind)
+          ? [[`${document.providerGroupId}:${file.kind}:${file.sha256}`, file] as const]
+          : [],
+      ),
     ),
   );
   for (const file of groupFiles.values()) {
