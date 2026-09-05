@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.20
+
+- Login e rinnovo del token Aruba rispettano lo stesso intervallo di autenticazione, condiviso fra processi. Dopo un rinnovo rifiutato, il recupero attende il prossimo intervallo senza riusare il token non valido.
+- Un limite sull’autenticazione non viene più attribuito anche alle letture o agli invii. Il monitoraggio calcola la ripresa dal cooldown persistente senza generare nuove autenticazioni durante l’attesa.
+- Prima di rinnovare il token dopo un rifiuto dell’invio, il worker ricontrolla la propria autorizzazione e il lease del job.
+
 ## 1.3.19
 
 - Dashboard e Ordini mostrano un conteggio stabile delle preparazioni pronte durante la sincronizzazione Aruba, con lo stato della verifica separato.
