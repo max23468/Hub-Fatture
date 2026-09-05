@@ -114,10 +114,13 @@ export async function scheduleDueSyncs() {
            SELECT 1 FROM jobs
            WHERE type IN ('aruba_backfill_inventory', 'aruba_sync_inventory',
              'aruba_refresh_nonterminal', 'aruba_full_inventory')
-             AND coalesce(completed_at, run_at) > now() - interval '15 minutes'
+             AND coalesce(completed_at, run_at) > now() - make_interval(secs => $2)
          )
        ON CONFLICT DO NOTHING`,
-      [getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT"],
+      [
+        getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT",
+        ARUBA_API_POLICY.inventoryRefreshIntervalMs / 1000,
+      ],
     );
     await client.query(
       `UPDATE jobs SET priority = CASE

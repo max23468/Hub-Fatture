@@ -119,7 +119,7 @@ export async function getArubaInventoryHealth(
     `SELECT
        (SELECT max(completed_at) FROM aruba_sync_runs
         WHERE environment = $1 AND account_reference = $2 AND status = 'COMPLETED'
-          AND authority_mode = 'CANONICAL') AS last_completed_at,
+          AND authority_mode = 'CANONICAL' AND kind IN ('BACKFILL', 'INCREMENTAL', 'FULL')) AS last_completed_at,
        (SELECT max(full_scan_completed_at) FROM aruba_sync_runs
         WHERE environment = $1 AND account_reference = $2
           AND status = 'COMPLETED'
@@ -133,7 +133,7 @@ export async function getArubaInventoryHealth(
         WHERE environment = $1 AND account_reference = $2 AND status = 'RUNNING'
           AND authority_mode = 'CANONICAL'
         ORDER BY started_at DESC LIMIT 1) AS active_session_expires_at,
-       (SELECT coalesce(completed_at, started_at) + interval '15 minutes'
+       (SELECT coalesce(completed_at, started_at) + make_interval(secs => $4)
         FROM aruba_sync_runs WHERE environment = $1 AND account_reference = $2
           AND authority_mode = 'CANONICAL'
         ORDER BY started_at DESC LIMIT 1) AS next_scheduled_at,
@@ -142,7 +142,8 @@ export async function getArubaInventoryHealth(
           AND authority_mode = 'CANONICAL' AND last_error_code IS NOT NULL
           AND started_at > coalesce((SELECT max(completed_at) FROM aruba_sync_runs
             WHERE environment = $1 AND account_reference = $2
-              AND status = 'COMPLETED' AND authority_mode = 'CANONICAL'), '-infinity')
+              AND status = 'COMPLETED' AND authority_mode = 'CANONICAL'
+              AND kind IN ('BACKFILL', 'INCREMENTAL', 'FULL')), '-infinity')
         ORDER BY started_at DESC LIMIT 1) AS last_error_code,
        EXISTS (SELECT 1 FROM aruba_sync_runs AS failed
         WHERE failed.environment = $1 AND failed.account_reference = $2
@@ -152,7 +153,8 @@ export async function getArubaInventoryHealth(
               AND failed.last_error_code IS NOT NULL))
           AND failed.started_at > coalesce((SELECT max(completed_at) FROM aruba_sync_runs
             WHERE environment = $1 AND account_reference = $2
-              AND status = 'COMPLETED' AND authority_mode = 'CANONICAL'), '-infinity'))
+              AND status = 'COMPLETED' AND authority_mode = 'CANONICAL'
+              AND kind IN ('BACKFILL', 'INCREMENTAL', 'FULL')), '-infinity'))
        AS unresolved_failure,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
@@ -187,7 +189,12 @@ export async function getArubaInventoryHealth(
        (SELECT count(*) FROM aruba_remote_documents
         WHERE environment = $1 AND account_reference = $2
           AND document_date >= $3::date) AS remote_documents`,
-    [environment(), accountReference(), ARUBA_API_POLICY.inventoryStart],
+    [
+      environment(),
+      accountReference(),
+      ARUBA_API_POLICY.inventoryStart,
+      ARUBA_API_POLICY.inventoryRefreshIntervalMs / 1000,
+    ],
   );
   const row = result.rows[0]!;
   // Il FULL API qualificato precede il cutover e conserva intenzionalmente la provenienza

@@ -1244,6 +1244,123 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       ).rows[0],
       { authority_mode: "CANONICAL", continued_from_run_id: null },
     );
+    assert.equal(await jobs.completeJob(resumedJob!, resumedResult), true);
+
+    const fixtureFetch = globalThis.fetch;
+    let listingStatus = "Consegnata";
+    let heavyReads = 0;
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v2/invoices-out") {
+        return response({
+          content: [
+            {
+              id: "cached-terminal",
+              filename: "IT00000000000_TARGET.xml",
+              idSdi: null,
+              invoiceType: "FPR12",
+              docType: "out",
+              pddAvailable: false,
+              invoices: [
+                {
+                  invoiceDate: "2026-07-01T02:30:00.000Z",
+                  number: "FPR 0042/26",
+                  documentType: "TD01",
+                  status: listingStatus,
+                },
+              ],
+            },
+          ],
+          first: true,
+          last: true,
+          number: 1,
+          numberOfElements: 1,
+          size: 10,
+          totalElements: 1,
+          totalPages: 1,
+        });
+      }
+      const result = await fixtureFetch(input);
+      if (url.pathname === "/api/v2/invoices-out/detail") {
+        heavyReads += 1;
+        const detail = await result.json();
+        detail.invoices[0].status = listingStatus;
+        detail.invoices[0].number = "FPR 0042/26";
+        detail.file = Buffer.from(
+          Buffer.from(detail.file, "base64").toString("utf8").replace("FPR 0001/26", "FPR 0042/26"),
+        ).toString("base64");
+        detail.lastUpdate = new Date(
+          Date.parse("2026-07-01T06:00:00.000Z") + cacheRunOrdinal * 1000,
+        ).toISOString();
+        return response(detail);
+      }
+      if (url.pathname === "/api/v2/invoices-out/notifications") {
+        heavyReads += 1;
+        const notifications = await result.json();
+        notifications.notifications[0].number = "FPR 0042/26";
+        if (listingStatus === "Non consegnata") {
+          notifications.notifications[0].docType = "MC";
+          notifications.notifications[0].file = Buffer.from(
+            "<NotificaMancataConsegna><NomeFile>IT00000000000_TARGET.xml</NomeFile></NotificaMancataConsegna>",
+          ).toString("base64");
+        }
+        return response(notifications);
+      }
+      return result;
+    };
+    let cacheRunOrdinal = 0;
+    const runCachedInventory = async (type = "aruba_sync_inventory") => {
+      heavyReads = 0;
+      await getPool().query("INSERT INTO jobs (type) VALUES ($1)", [type]);
+      const cachedJob = await jobs.claimJob("aruba-cached-inventory-worker");
+      assert.equal(cachedJob?.type, type);
+      const result = await api.runArubaApiInboundJob(cachedJob!, {
+        rateDelayMs: 0,
+        now: new Date(Date.parse("2026-07-01T07:00:00.000Z") + cacheRunOrdinal++ * 60_000),
+      });
+      assert.equal(result.documents, 1);
+      assert.equal(await jobs.completeJob(cachedJob!, result), true);
+      return heavyReads;
+    };
+    assert.equal(await runCachedInventory(), 2, "il nuovo stato richiede dettaglio e notifiche");
+    assert.equal(
+      await runCachedInventory(),
+      0,
+      "il terminale invariato riusa le evidenze verificate",
+    );
+    assert.equal(
+      await runCachedInventory("aruba_full_inventory"),
+      2,
+      "il controllo completo rilegge anche i terminali",
+    );
+    listingStatus = "Non consegnata";
+    assert.equal(await runCachedInventory(), 2, "uno stato diverso invalida il riuso");
+    assert.equal(
+      await runCachedInventory(),
+      2,
+      "le ricevute discordanti mantengono la rilettura completa",
+    );
+    await getPool().query(`DELETE FROM aruba_files WHERE kind = 'ARUBA_XML'
+      AND remote_document_id IN (SELECT id FROM aruba_remote_documents WHERE provider_group_id = 'cached-terminal')`);
+    assert.equal(await runCachedInventory(), 2, "un file ufficiale mancante viene recuperato");
+    await getPool().query(`UPDATE aruba_document_matches SET status = 'UNKNOWN_REMOTE_STATE'
+      WHERE remote_document_id IN (SELECT id FROM aruba_remote_documents WHERE provider_group_id = 'cached-terminal')`);
+    assert.equal(await runCachedInventory(), 2, "uno stato incerto non usa il riuso dei terminali");
+    const { getArubaInventoryHealth } = await import("./aruba-inventory-health.server.ts");
+    const beforeTargeted = await getArubaInventoryHealth();
+    await getPool().query(`INSERT INTO aruba_sync_runs
+      (id, environment, api_environment, account_reference, kind, authority_mode, status,
+       window_start, window_end, checkpoint_start, checkpoint_end, lease_expires_at, started_at, completed_at)
+      SELECT gen_random_uuid(), environment, api_environment, account_reference, 'TARGETED',
+        'CANONICAL', 'COMPLETED', window_start, window_end, checkpoint_start, checkpoint_end,
+        now(), now() + interval '1 minute', now() + interval '1 minute'
+      FROM aruba_sync_runs WHERE kind = 'INCREMENTAL' ORDER BY completed_at DESC LIMIT 1`);
+    assert.equal(
+      (await getArubaInventoryHealth()).lastCompletedAt,
+      beforeTargeted.lastCompletedAt,
+      "la rilettura di un solo documento non rinnova la freschezza dell’intero inventario",
+    );
+
     const uncertainCommitDirectory = await mkdtemp(path.join(tmpdir(), "hub-fatture-commit-"));
     const uncertainCommitFile = path.join(uncertainCommitDirectory, "evidenza.xml");
     await writeFile(uncertainCommitFile, "evidenza sintetica");

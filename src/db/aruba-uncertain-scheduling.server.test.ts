@@ -51,6 +51,22 @@ test("uno stato Aruba incerto conclusivo pianifica una rilettura mirata", async 
       (await getPool().query("SELECT type FROM jobs WHERE status = 'PENDING'")).rows,
       [{ type: "aruba_refresh_nonterminal" }],
     );
+    await getPool().query(`UPDATE jobs SET status = 'COMPLETED', completed_at = now()
+      WHERE status = 'PENDING'`);
+    await scheduleDueSyncs();
+    assert.deepEqual(
+      (await getPool().query("SELECT type FROM jobs WHERE status = 'PENDING'")).rows,
+      [],
+    );
+    await getPool().query(`UPDATE jobs SET completed_at = now() - interval '3 minutes'
+      WHERE type = 'aruba_refresh_nonterminal'`);
+    await scheduleDueSyncs();
+    assert.deepEqual(
+      (await getPool().query("SELECT type FROM jobs WHERE status = 'PENDING'")).rows,
+      [{ type: "aruba_sync_inventory" }],
+      "la rilettura mirata non rinvia di quindici minuti il prossimo inventario",
+    );
+    await getPool().query("DELETE FROM jobs WHERE status = 'PENDING'");
     await getPool().query(
       `UPDATE jobs SET status = 'COMPLETED', completed_at = now() - interval '16 minutes'
        WHERE status = 'PENDING';

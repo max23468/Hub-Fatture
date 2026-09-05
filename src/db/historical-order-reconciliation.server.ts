@@ -939,8 +939,9 @@ export async function reconcileHistoricalOrder(
         }>(
           `SELECT id, origin, xml_sha256 FROM documents
          WHERE series = 'FPR' AND fiscal_year = $1 AND fiscal_number = $2
+         ORDER BY (xml_sha256 = $3) DESC
          FOR UPDATE`,
-          [importedInvoice.year, importedInvoice.number],
+          [importedInvoice.year, importedInvoice.number, archivedInvoice.sha256],
         );
         const previous = existing.rows[0];
         if (

@@ -64,7 +64,7 @@ stato e file ufficiali; Hub Fatture conserva una proiezione locale datata e una 
 - sole fatture inviate del ciclo attivo, inclusi TD01 e TD04;
 - ambiente mock con fixture sanificate e Production con qualifiche limitate e autorizzate;
 - inventario iniziale dal 1° luglio 2026;
-- polling incrementale ogni 15 minuti, rilettura mirata degli stati non terminali e scansione
+- polling incrementale coordinato con la freschezza di approvazione, rilettura mirata degli stati non terminali e scansione
   completa mensile;
 - comando read-only `Sincronizza ora` per Massimo e Codex;
 - credenziale cifrata nel database e recuperabile tramite il recovery kit protetto;
@@ -192,11 +192,13 @@ Finché il backfill non è completo:
 
 ### 6.3 Regime ordinario
 
-- ogni 15 minuti: finestre incrementali con sovrapposizione di sicurezza;
-- a ogni giro: rilettura mirata dei documenti non terminali e delle notifiche correlate;
+- dopo due minuti dal giro precedente: finestre incrementali con sovrapposizione di sicurezza, entro il limite di freschezza richiesto per approvare;
+- ogni 15 minuti, alternata all’inventario: rilettura mirata dei documenti non terminali e delle notifiche correlate;
 - una volta al mese: scansione completa di controllo;
 - su richiesta: `Sincronizza ora`, senza avviare un secondo giro concorrente;
 - nuovo stream, cursore assente, conteggio incoerente o cambio di contratto: scansione completa.
+
+Nei giri incrementali si riusano file e notifiche già acquisiti soltanto per gruppi singoli definitivi con riepilogo Aruba invariato ed evidenze integre. Nuovi documenti, cambi di stato, dati incompleti o incerti, gruppi multipli e scansioni complete richiedono la lettura completa. Il timestamp remoto resta quello dell’evidenza originaria. La rilettura mirata di singoli documenti non rinnova la freschezza dell’intero inventario né cancella un errore della scansione generale.
 
 Un lease garantisce una sola sincronizzazione per ambiente e account. La scadenza del token durante
 un giro usa il refresh documentato; il fallimento di refresh chiude il giro senza avanzare cursori.
