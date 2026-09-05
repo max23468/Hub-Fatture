@@ -165,6 +165,14 @@ test("la sessione Aruba condivide signin e refresh senza ripersistire token o fa
     assert.equal(passwordSignins, 1);
     assert.equal(userInfoReads, 1);
 
+    await assert.rejects(
+      connection.refreshConfiguredArubaApiAfterUnauthorized(),
+      (error) => error instanceof AppError && error.code === "ARUBA_API_AUTH_INTERVAL_ACTIVE",
+    );
+    assert.equal(refreshSignins, 0);
+    await getPool().query(
+      "UPDATE aruba_api_auth_attempts SET attempted_at = now() - interval '2 minutes'",
+    );
     const [refreshed, sharedRefresh] = await Promise.all([
       connection.refreshConfiguredArubaApiAfterUnauthorized(),
       connection.refreshConfiguredArubaApiAfterUnauthorized(),
@@ -183,7 +191,16 @@ test("la sessione Aruba condivide signin e refresh senza ripersistire token o fa
       "UPDATE aruba_api_auth_attempts SET attempted_at = now() - interval '2 minutes'",
     );
     rejectRefresh = true;
-    const recovered = await connection.refreshConfiguredArubaApiAfterUnauthorized();
+    await assert.rejects(
+      connection.refreshConfiguredArubaApiAfterUnauthorized(),
+      (error) => error instanceof AppError && error.code === "ARUBA_API_AUTH_INTERVAL_ACTIVE",
+    );
+    assert.equal(refreshSignins, 2);
+    assert.equal(passwordSignins, 1);
+    await getPool().query(
+      "UPDATE aruba_api_auth_attempts SET attempted_at = now() - interval '2 minutes'",
+    );
+    const recovered = await connection.authenticateConfiguredArubaApiForOutbound();
     assert.equal(recovered.session.accessToken, "access-password-2");
     assert.equal(refreshSignins, 2);
     assert.equal(passwordSignins, 2);

@@ -136,10 +136,15 @@ test("il readback usa dettaglio e notifiche fino all’esito canonico senza regr
     let startInventoryDuringRead = false;
     let providerCalls = 0;
     let rateLimitNextDetail = false;
+    let rateLimitNextAuthentication = false;
     globalThis.fetch = async (input) => {
       providerCalls += 1;
       const url = new URL(String(input));
       if (url.pathname === "/auth/signin") {
+        if (rateLimitNextAuthentication) {
+          rateLimitNextAuthentication = false;
+          return new Response(null, { status: 429 });
+        }
         return response({
           access_token: "access-sintetico",
           refresh_token: "refresh-sintetico",
@@ -368,6 +373,34 @@ test("il readback usa dettaglio e notifiche fino all’esito canonico senza regr
       [limitedJob!.id],
     );
     assert.deepEqual(limitedState.rows[0], { status: "PENDING", cooldown: true });
+
+    const { invalidateConfiguredArubaApiSession } =
+      await import("./aruba-api-connection.server.ts");
+    invalidateConfiguredArubaApiSession();
+    await pool.query(`UPDATE aruba_api_traffic_limits SET cooldown_until = NULL;
+      UPDATE aruba_api_auth_attempts SET attempted_at = now() - interval '2 minutes';
+      `);
+    await pool.query("UPDATE jobs SET run_at = now() WHERE id = $1", [limitedJob!.id]);
+    rateLimitNextAuthentication = true;
+    const authLimitedJob = await claimJob("aruba-auth-limited-readback");
+    assert.equal(authLimitedJob?.id, limitedJob!.id);
+    const callsBeforeAuthLimit = providerCalls;
+    const authLimited = await runArubaApiReadbackJob(authLimitedJob!);
+    assert.equal(providerCalls, callsBeforeAuthLimit + 1);
+    assert.equal(authLimited.continuationPending, true);
+    assert.ok(Number(authLimited.continuationDelayMs) >= 64 * 60_000);
+    assert.equal(
+      await yieldJob(authLimitedJob!, authLimited, Number(authLimited.continuationDelayMs)),
+      true,
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT scope, rate_limited_count FROM aruba_api_traffic_limits WHERE cooldown_until > now()`,
+        )
+      ).rows,
+      [{ scope: "AUTH", rate_limited_count: 1 }],
+    );
     await closePool();
   } finally {
     globalThis.fetch = originalFetch;

@@ -100,8 +100,13 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
 
     let sendCalls = 0;
     const sendAttempts = new Map<string, number>();
+    let rateLimitNextAuthentication = false;
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input));
+      if (url.pathname === "/auth/signin" && rateLimitNextAuthentication) {
+        rateLimitNextAuthentication = false;
+        return new Response(null, { status: 429 });
+      }
       if (url.pathname === "/auth/signin") return tokenResponse();
       if (url.pathname === "/auth/userInfo") return accountResponse();
       assert.equal(url.origin, "https://demows.fatturazioneelettronica.aruba.it");
@@ -447,6 +452,23 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
     assert.equal((await completeNext("aruba_send_submission")).accepted, true);
     assert.equal(sendCalls, callsBeforeOrderCollision + 1);
 
+    connection.invalidateConfiguredArubaApiSession();
+    await pool.query(
+      "UPDATE aruba_api_auth_attempts SET attempted_at = now() - interval '2 minutes'",
+    );
+    await createBatch(["AUTENTICAZIONE"], 1014);
+    rateLimitNextAuthentication = true;
+    const callsBeforeAuthLimit = sendCalls;
+    assert.equal((await completeNext("aruba_send_submission")).errorCode, "PROVIDER_RATE_LIMITED");
+    assert.equal(sendCalls, callsBeforeAuthLimit);
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT scope, rate_limited_count FROM aruba_api_traffic_limits WHERE cooldown_until > now()`,
+        )
+      ).rows,
+      [{ scope: "AUTH", rate_limited_count: 1 }],
+    );
     connection.invalidateConfiguredArubaApiSession();
     await closePool();
   } finally {

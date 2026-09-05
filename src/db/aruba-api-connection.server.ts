@@ -60,6 +60,7 @@ async function refreshCachedConnection(input: {
           : undefined;
     }
     if (!cached) {
+      sessions.delete(input.cacheKey);
       await reserveArubaApiAuthentication(input.credentials.apiEnvironment);
       const authenticated = await authenticateArubaApiWithAccount({
         environment: input.credentials.apiEnvironment,
@@ -96,6 +97,7 @@ async function refreshCachedConnection(input: {
 }
 
 async function refreshConnectionSession(cached: CachedConnection) {
+  await reserveArubaApiAuthentication(cached.session.environment);
   try {
     return { ...cached, session: await refreshArubaApiSession({ session: cached.session }) };
   } catch (error) {
