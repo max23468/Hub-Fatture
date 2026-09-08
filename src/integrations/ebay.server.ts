@@ -723,9 +723,9 @@ export function ebayTradingSuccessorOrderId(payload: unknown, requestedOrderId: 
   const orderStatus = xmlText(order.OrderStatus);
   const orderId = xmlText(order.OrderID) ?? xmlText(order.ExtendedOrderID);
   if (orderStatus === "Completed" && orderId) return orderId;
-  const lineIds = xmlValues(record(order.TransactionArray).Transaction)
-    .map(record)
-    .map((transaction) => xmlText(transaction.OrderLineItemID));
+  const lineIds = xmlValues(record(order.TransactionArray).Transaction).map((transaction) =>
+    xmlText(record(transaction).OrderLineItemID),
+  );
   if (["Active", "Cancelled"].includes(orderStatus ?? "") && lineIds.includes(requestedOrderId)) {
     return null;
   }
@@ -935,9 +935,10 @@ export function mergeEbayOrderObservations(
     const successorIds = [...new Set(successorIdentityIds.get(order.externalOrderId) ?? [])];
     if (!successorIds.length) return order;
     unresolvedSuccessors.delete(order.externalOrderId);
+    const successorIdSet = new Set(successorIds);
     const identities = [
       ...successorIds,
-      ...order.sourceIdentityIds.filter((identity) => !successorIds.includes(identity)),
+      ...order.sourceIdentityIds.filter((identity) => !successorIdSet.has(identity)),
     ].slice(0, order.lines.length);
     if (successorIds.length > order.lines.length || identities.length !== order.lines.length) {
       throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
@@ -1005,6 +1006,7 @@ async function fetchOrdersByIds(
   const orders: OrderInput[] = [];
   for (let offset = 0; offset < orderIds.length; offset += 50) {
     const requested = orderIds.slice(offset, offset + 50);
+    const requestedSet = new Set(requested);
     // react-doctor-disable-next-line react-doctor/async-await-in-loop
     const response = await providerJson(
       `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order?` +
@@ -1018,7 +1020,7 @@ async function fetchOrdersByIds(
     const returned = new Set<string>();
     for (const summary of records(response.orders)) {
       const orderId = text(summary.orderId);
-      if (!orderId || !requested.includes(orderId) || returned.has(orderId)) {
+      if (!orderId || !requestedSet.has(orderId) || returned.has(orderId)) {
         throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
       }
       returned.add(orderId);

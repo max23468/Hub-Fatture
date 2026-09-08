@@ -9,6 +9,7 @@ import {
   temporaryDatabase,
   withClient,
   EBAY_CONTROL_ALIGNMENT_REPLAY,
+  EBAY_FULFILLMENT_CONFLICT_REPLAY,
   EBAY_NULL_EMAIL_ALIGNMENT_REPLAY,
   copyMigrationSnapshot,
 } from "./support.ts";
@@ -67,6 +68,73 @@ test("l'upgrade rilegge gli ordini eBay per riallineare i controlli", async () =
           )
         ).rows[0],
         { cursor: null, overlap_from: "2026-08-20 09:55:00+00" },
+      );
+      assert.equal(
+        (await client.query("SELECT last_synced_at FROM connections WHERE provider = 'EBAY'"))
+          .rows[0].last_synced_at,
+        null,
+      );
+    });
+  } finally {
+    await rm(beforeReplay, { recursive: true, force: true });
+    await database.drop();
+  }
+});
+
+test("l'upgrade rilegge i conflitti eBay per riallineare l'evasione", async () => {
+  const database = await temporaryDatabase("ebay_fulfillment_conflict_replay");
+  const beforeReplay = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-ebay-fulfillment-replay-"),
+  );
+  try {
+    await copyMigrationSnapshot(beforeReplay);
+    await runMigrations({ connectionString: database.connectionString, directory: beforeReplay });
+    await withClient(database.connectionString, async (client) => {
+      await client.query(
+        `INSERT INTO connections
+           (provider, environment, account_reference, encrypted_credentials, status,
+            last_synced_at)
+         VALUES ('EBAY', 'PRODUCTION', 'seller-fulfillment', 'encrypted', 'CONNECTED',
+                 '2026-09-08T08:00:00Z');
+         INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+         VALUES
+           ('EBAY', 'history_import', 'complete', '2026-01-01T00:00:00Z'),
+           ('EBAY', 'orders', 'recent', '2026-09-08T07:00:00Z')`,
+      );
+      const customerId = (
+        await client.query(
+          `INSERT INTO customers
+             (kind, match_key, display_name, billing_address_json, source_confidence,
+              review_required)
+           VALUES ('PRIVATE_IT', 'ebay-fulfillment-replay', 'Cliente', '{}', 'TAX_ID', false)
+           RETURNING id`,
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO orders
+           (provider, external_account_id, external_order_id, display_number,
+            created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+            payment_status, fulfillment_status, trigger_status, customer_id,
+            raw_snapshot_json, normalized_snapshot_json)
+         VALUES ('EBAY', 'seller-fulfillment', 'fulfillment-order', 'E-FULFILLMENT',
+                 '2026-09-07T08:00:00Z', '2026-09-07T09:25:12Z', '2026-09-07',
+                 'EUR', 3185, 'PAID', 'FULFILLED', 'NEEDS_REVIEW', $1, '{}',
+                 '{"sourceConflictRequired":true}'::jsonb)`,
+        [customerId],
+      );
+    });
+
+    const applied = await runMigrations({ connectionString: database.connectionString });
+    assert.ok(applied.includes(EBAY_FULFILLMENT_CONFLICT_REPLAY));
+    await withClient(database.connectionString, async (client) => {
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT cursor, overlap_from::text
+             FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'orders'`,
+          )
+        ).rows[0],
+        { cursor: null, overlap_from: "2026-09-07 09:20:12+00" },
       );
       assert.equal(
         (await client.query("SELECT last_synced_at FROM connections WHERE provider = 'EBAY'"))

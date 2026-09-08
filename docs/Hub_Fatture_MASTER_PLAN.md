@@ -611,7 +611,7 @@ HF può salvare e normalizzare una VAT UE come dato anagrafico e chiave di match
 9. Se annullato prima del trigger, conserva l'ordine come `CANCELLED_NO_DOCUMENT`.
 10. Se idoneo, cerca o crea il raggruppamento giornaliero compatibile.
 
-La piattaforma resta fonte del dato originario. Una risincronizzazione non deve sovrascrivere modifiche manuali della bozza: registra la differenza e richiede revisione quando è rilevante.
+La piattaforma resta fonte del dato originario. Una risincronizzazione non deve sovrascrivere modifiche manuali della bozza: registra la differenza e richiede revisione quando è rilevante. L’avanzamento dello stato di evasione è invece operativo: per Shopify ed eBay aggiorna automaticamente la preparazione quando procede in avanti e ogni altro dato normalizzato coincide; regressioni o variazioni economiche e anagrafiche restano da verificare.
 
 Per i dati anagrafici mantenere tre forme distinte: snapshot sorgente immutabile, profilo canonico per matching e anti-duplicazione, forma di presentazione per interfaccia e documenti. La forma di presentazione uniforma Unicode e spazi, e-mail, codici Paese/provincia e identificativi; applica maiuscole leggibili a nomi personali, città e indirizzi italiani riconoscibili soltanto quando il risultato è ad alta confidenza. Ragioni sociali, parole già in casing misto e parti ambigue restano invariate. La correzione manuale prevale e le preparazioni già create non vengono riscritte.
 

@@ -7,7 +7,7 @@ import {
   isEbayEmailOnlyChange,
   isEbayPaymentTimestampOnlyChange,
   isEbayRefundMapperOnlyChange,
-  isShopifyFulfillmentOnlyChange,
+  isFulfillmentOnlyChange,
 } from "./order-source-alignment.ts";
 
 function paymentTimestampSnapshot(paidAt: string, method = "EBAY") {
@@ -213,7 +213,7 @@ test("riconosce una preparazione eBay rimasta indietro soltanto sull’e-mail", 
   );
 });
 
-test("l'avanzamento dell'evasione Shopify non è un conflitto fiscale", () => {
+test("l'avanzamento dell'evasione non è un conflitto fiscale", () => {
   const previous = {
     provider: "SHOPIFY",
     fulfillmentStatus: "UNFULFILLED",
@@ -234,21 +234,19 @@ test("l'avanzamento dell'evasione Shopify non è un conflitto fiscale", () => {
     sourceSnapshot: { displayFulfillmentStatus: "FULFILLED", transactions: [{ enriched: true }] },
     reviewFingerprint: "dopo",
   };
-  assert.equal(isShopifyFulfillmentOnlyChange(previous, current), true);
+  assert.equal(isFulfillmentOnlyChange(previous, current), true);
   assert.equal(
-    isShopifyFulfillmentOnlyChange(previous, {
+    isFulfillmentOnlyChange(previous, {
       ...current,
       sourceIdentityIds: ["identità-effettiva"],
     }),
     false,
   );
-  assert.equal(isShopifyFulfillmentOnlyChange(previous, { ...current, totalAmount: 10_01 }), false);
-  assert.equal(isShopifyFulfillmentOnlyChange(current, previous), false);
+  assert.equal(isFulfillmentOnlyChange(previous, { ...current, totalAmount: 10_01 }), false);
+  assert.equal(isFulfillmentOnlyChange(current, previous), false);
   assert.equal(
-    isShopifyFulfillmentOnlyChange(
-      { ...previous, provider: "EBAY" },
-      { ...current, provider: "EBAY" },
-    ),
-    false,
+    isFulfillmentOnlyChange({ ...previous, provider: "EBAY" }, { ...current, provider: "EBAY" }),
+    true,
   );
+  assert.equal(isFulfillmentOnlyChange(previous, { ...current, provider: "EBAY" }), false);
 });

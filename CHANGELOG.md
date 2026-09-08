@@ -4,6 +4,7 @@
 
 - La sincronizzazione eBay collega gli acquisti provvisori all’ordine combinato indicato da `GetOrders`, anche quando eBay cambia gli identificativi delle righe al pagamento. Il consolidamento richiede che tutte le righe di ogni provvisorio appartengano allo stesso ordine definitivo.
 - L’upgrade rilegge gli ordini eBay provvisori recenti, così quelli già assorbiti da un ordine pagato vengono chiusi dal normale percorso di dominio e scompaiono dai pagamenti in attesa.
+- L’avanzamento dell’evasione eBay aggiorna una preparazione senza aprire un conflitto sorgente quando ogni dato economico e anagrafico coincide. L’upgrade rilegge i conflitti eBay esistenti e chiude automaticamente soltanto quelli deterministici.
 
 ## 1.3.20
 
