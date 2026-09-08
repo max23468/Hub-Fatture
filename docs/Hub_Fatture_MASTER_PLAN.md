@@ -922,6 +922,7 @@ Non fissare i nomi dei topic senza verifica sulla versione API corrente.
 - Identità di riga del rispettivo percorso e legame autorevole fra ordine Trading provvisorio e `OrderID` Fulfillment successore.
 - Date e stato.
 - Buyer e indirizzi.
+- Telefono del destinatario dal campo `primaryPhone.phoneNumber`; il contenitore non viene convertito in testo.
 - Totali EUR.
 - Righe e costi accessori per riconciliazione.
 - Stato pagamento e fulfillment.

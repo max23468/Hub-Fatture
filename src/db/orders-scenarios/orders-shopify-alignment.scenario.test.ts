@@ -53,7 +53,13 @@ export async function run(context: OrdersTestContext) {
   ebayFulfillment.displayNumber = "E-FULFILLMENT-ONLY";
   ebayFulfillment.createdAt = "2026-09-07T08:00:00Z";
   ebayFulfillment.updatedAt = "2026-09-07T08:25:12Z";
-  ebayFulfillment.sourceSnapshot = { orderFulfillmentStatus: "NOT_STARTED" };
+  ebayFulfillment.customer.phone = "[object Object]";
+  ebayFulfillment.sourceSnapshot = {
+    orderFulfillmentStatus: "NOT_STARTED",
+    fulfillmentStartInstructions: [
+      { shippingStep: { shipTo: { primaryPhone: { phoneNumber: "+39 011 0000000" } } } },
+    ],
+  };
   await orders.importOrders([ebayFulfillment], {
     id: 1,
     requestId: "ebay-fulfillment-before",
@@ -68,7 +74,10 @@ export async function run(context: OrdersTestContext) {
   const ebayFulfilled = structuredClone(ebayFulfillment);
   ebayFulfilled.updatedAt = "2026-09-07T09:25:12Z";
   ebayFulfilled.fulfillmentStatus = "FULFILLED";
-  ebayFulfilled.sourceSnapshot = { orderFulfillmentStatus: "FULFILLED" };
+  ebayFulfilled.sourceSnapshot = {
+    ...ebayFulfillment.sourceSnapshot,
+    orderFulfillmentStatus: "FULFILLED",
+  };
   await orders.importOrders([ebayFulfilled], {
     id: 1,
     requestId: "ebay-fulfillment-after",
@@ -105,20 +114,27 @@ export async function run(context: OrdersTestContext) {
       JSON.stringify(ebayOrder.normalized_snapshot_json),
     ],
   );
-  await orders.importOrders([ebayFulfilled], {
+  const ebayFulfilledWithCorrectPhone = structuredClone(ebayFulfilled);
+  ebayFulfilledWithCorrectPhone.customer.phone = "+39 011 0000000";
+  await orders.importOrders([ebayFulfilledWithCorrectPhone], {
     id: 1,
     requestId: "ebay-fulfillment-replay",
   });
   assert.deepEqual(
     (
       await database.getPool().query(
-        `SELECT billing_cases.status, orders.trigger_status,
+        `SELECT billing_cases.status, billing_cases.customer_snapshot_json ->> 'phone' AS phone,
+                orders.trigger_status,
                 orders.normalized_snapshot_json ->> 'sourceConflictRequired'
                   AS source_conflict_required,
                 (SELECT count(*)::integer FROM audit_events
                  WHERE entity_type = 'ORDER' AND entity_id = orders.id::text
                    AND action = 'ORDER_SOURCE_REVIEWED'
-                   AND metadata_json ->> 'automaticAlignment' = 'FULFILLMENT_ONLY') AS alignments
+                   AND metadata_json ->> 'automaticAlignment' = 'FULFILLMENT_ONLY') AS alignments,
+                (SELECT count(*)::integer FROM audit_events
+                 WHERE entity_type = 'ORDER' AND entity_id = orders.id::text
+                   AND action = 'ORDER_SOURCE_REVIEWED'
+                   AND metadata_json ->> 'automaticAlignment' = 'PHONE_MAPPER') AS phone_alignments
          FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
          WHERE orders.external_order_id = $1`,
         [ebayFulfillment.externalOrderId],
@@ -126,9 +142,11 @@ export async function run(context: OrdersTestContext) {
     ).rows[0],
     {
       status: "READY",
+      phone: "+39 011 0000000",
       trigger_status: "GROUPED",
       source_conflict_required: "false",
       alignments: 2,
+      phone_alignments: 1,
     },
   );
 

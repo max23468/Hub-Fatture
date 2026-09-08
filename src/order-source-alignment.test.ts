@@ -6,6 +6,7 @@ import {
   isEbayEmailAndMapperOnlyChange,
   isEbayEmailOnlyChange,
   isEbayPaymentTimestampOnlyChange,
+  isEbayPhoneMapperOnlyChange,
   isEbayRefundMapperOnlyChange,
   isFulfillmentOnlyChange,
 } from "./order-source-alignment.ts";
@@ -118,6 +119,66 @@ test("riconosce come sicura soltanto una variazione dell'e-mail eBay", () => {
       { ...snapshot("prima@example.invalid"), provider: "SHOPIFY" },
       { ...snapshot("dopo@example.invalid"), provider: "SHOPIFY" },
     ),
+    false,
+  );
+});
+
+test("riconosce soltanto la correzione del telefono eBay serializzato come oggetto", () => {
+  const sourceSnapshot = {
+    fulfillmentStartInstructions: [
+      { shippingStep: { shipTo: { primaryPhone: { phoneNumber: "+39 011 0000000" } } } },
+    ],
+  };
+  const previous = {
+    ...snapshot("cliente@example.invalid"),
+    sourceSnapshot,
+    customer: { displayName: "Mario Rossi", phone: "[object Object]" },
+    customerSnapshot: {
+      ...snapshot("cliente@example.invalid").customerSnapshot,
+      phone: "[object Object]",
+      canonicalProfile: {
+        ...snapshot("cliente@example.invalid").customerSnapshot.canonicalProfile,
+        phone: "[object object]",
+      },
+    },
+  };
+  const current = {
+    ...previous,
+    customer: { displayName: "Mario Rossi", phone: "+39 011 0000000" },
+    customerSnapshot: {
+      ...previous.customerSnapshot,
+      phone: "+39 011 0000000",
+      canonicalProfile: { ...previous.customerSnapshot.canonicalProfile, phone: "+39 011 0000000" },
+    },
+    reviewFingerprint: "telefono-corretto",
+    sourceConflictRequired: true,
+  };
+  assert.equal(isEbayPhoneMapperOnlyChange(previous, current), true);
+  assert.equal(
+    isEbayPhoneMapperOnlyChange(
+      {
+        ...previous,
+        customer: { displayName: "Mario Rossi" },
+        customerSnapshot: {
+          ...previous.customerSnapshot,
+          phone: undefined,
+          canonicalProfile: { ...previous.customerSnapshot.canonicalProfile, phone: "" },
+        },
+      },
+      current,
+    ),
+    true,
+  );
+  assert.equal(isEbayPhoneMapperOnlyChange(previous, { ...current, totalAmount: 1_001 }), false);
+  assert.equal(
+    isEbayPhoneMapperOnlyChange(previous, {
+      ...current,
+      sourceSnapshot: {
+        fulfillmentStartInstructions: [
+          { shippingStep: { shipTo: { primaryPhone: { phoneNumber: "+39 011 9999999" } } } },
+        ],
+      },
+    }),
     false,
   );
 });

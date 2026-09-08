@@ -1,6 +1,6 @@
 import type pg from "pg";
 
-import { isFulfillmentOnlyChange } from "../order-source-alignment.ts";
+import { isEbayPhoneMapperOnlyChange, isFulfillmentOnlyChange } from "../order-source-alignment.ts";
 import { writeAudit } from "./audit.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 
@@ -40,7 +40,11 @@ export async function reconcileFulfillmentChange(
     oldOrder.latest_revision_id &&
     oldOrder.latest_revision_previous_snapshot_json &&
     oldOrder.latest_revision_current_snapshot_json &&
-    oldOrder.latest_revision_current_snapshot_json.reviewFingerprint === input.fingerprint &&
+    (oldOrder.latest_revision_current_snapshot_json.reviewFingerprint === input.fingerprint ||
+      isEbayPhoneMapperOnlyChange(
+        oldOrder.latest_revision_current_snapshot_json,
+        input.normalizedSnapshot,
+      )) &&
     isFulfillmentOnlyChange(
       oldOrder.latest_revision_previous_snapshot_json,
       oldOrder.latest_revision_current_snapshot_json,

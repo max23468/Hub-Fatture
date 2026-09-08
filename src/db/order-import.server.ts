@@ -700,6 +700,7 @@ async function importOne(
     emailOnlyAlignmentApplied ||
     providerAlignment.refundMapper ||
     providerAlignment.careOfAddress ||
+    providerAlignment.phoneMapper ||
     providerAlignment.paymentTimestamp ||
     providerAlignment.fulfillment;
   const sourceConflict =

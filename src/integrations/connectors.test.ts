@@ -128,21 +128,22 @@ test("eBay Trading rilegge l’identità anche dopo il completamento della trans
       eBayPaymentStatus: "PaymentInProcess",
     },
   };
+  const completedStatus = {
+    Status: {
+      CheckoutStatus: "CheckoutComplete",
+      CompleteStatus: "Complete",
+      eBayPaymentStatus: "NoPaymentFailure",
+    },
+  };
   assert.equal(
     ebayTradingLineId({ ...pendingStatus, OrderLineItemID: "item-1-transaction-1" }),
     "item-1-transaction-1",
   );
   assert.equal(
-    ebayTradingLineId({
-      Status: {
-        CheckoutStatus: "CheckoutComplete",
-        CompleteStatus: "Complete",
-        eBayPaymentStatus: "NoPaymentFailure",
-      },
-      OrderLineItemID: "item-1-transaction-1",
-    }),
+    ebayTradingLineId({ ...completedStatus, OrderLineItemID: "item-1-transaction-1" }),
     "item-1-transaction-1",
   );
+  assert.equal(ebayTradingLineId(completedStatus), null);
   assert.throws(
     () => ebayTradingLineId(pendingStatus),
     (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
@@ -390,6 +391,7 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(privateMapped.customer.taxIdentifiers[0]?.type, "CODICE_FISCALE");
   assert.equal(privateMapped.customer.firstName, undefined);
   assert.equal(privateMapped.customer.lastName, undefined);
+  assert.equal(privateMapped.customer.phone, "+39 011 0000000");
   assert.equal(privateMapped.customer.shippingAddress.line1, "Via eBay 1");
   assert.deepEqual(privateMapped.sourceSnapshot, privateOrder);
   assert.deepEqual(privateMapped.sourceIdentityIds, ["item-1-line-1"]);
