@@ -15,6 +15,7 @@ import {
   ebayTradingOrderIsImportable,
   ebayTradingOrderIsActive,
   ebayTradingPendingLineId,
+  ebayTradingSuccessorOrderId,
   ebayTradingHeaders,
   mapEbayOrder,
   mapEbayTradingOrder,
@@ -702,7 +703,7 @@ test("eBay Trading suddivide le riletture modificate nel limite di trenta giorni
   );
 });
 
-test("eBay sopprime l’osservazione Trading usando l’identità stabile completa", async () => {
+test("eBay usa l’ordine successore per assorbire le identità Trading cambiate", async () => {
   const response = parseEbayTradingResponse("GetOrders", tradingActiveOrderXml);
   const provisional = mapEbayTradingOrder(
     (response.OrderArray as { Order: unknown }).Order,
@@ -710,21 +711,59 @@ test("eBay sopprime l’osservazione Trading usando l’identità stabile comple
   );
   const [payload] = await fixture("ebay-orders.json");
   const canonical = mapEbayOrder(payload, "botCF");
-  canonical.sourceIdentityIds = [...provisional.sourceIdentityIds];
   canonical.lines = provisional.lines.map((_, index) => ({
     ...canonical.lines[0]!,
     externalLineId: `fulfillment-line-${index + 1}`,
   }));
+  canonical.sourceIdentityIds = provisional.lines.map(
+    (_, index) => `item-${index + 1}-fulfillment-${index + 1}`,
+  );
+  const successors = new Map([[canonical.externalOrderId, provisional.sourceIdentityIds]]);
 
-  assert.deepEqual(mergeEbayOrderObservations([provisional], [canonical]), {
-    orders: [canonical],
+  assert.equal(
+    ebayTradingSuccessorOrderId(
+      {
+        OrderID: canonical.externalOrderId,
+        OrderStatus: "Completed",
+        TransactionArray: {
+          Transaction: canonical.sourceIdentityIds.map((OrderLineItemID) => ({ OrderLineItemID })),
+        },
+      },
+      provisional.sourceIdentityIds[0]!,
+    ),
+    canonical.externalOrderId,
+  );
+
+  assert.deepEqual(mergeEbayOrderObservations([provisional], [canonical], successors), {
+    orders: [{ ...canonical, sourceIdentityIds: provisional.sourceIdentityIds }],
     provisionalOrders: [],
   });
 
-  const partial = structuredClone(canonical);
-  partial.sourceIdentityIds[1] = "item-unrelated-transaction-unrelated";
+  const partialSuccessors = new Map([
+    [canonical.externalOrderId, [provisional.sourceIdentityIds[0]!]],
+  ]);
   assert.throws(
-    () => mergeEbayOrderObservations([provisional], [partial]),
+    () => mergeEbayOrderObservations([provisional], [canonical], partialSuccessors),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+
+  const splitCanonical = structuredClone(canonical);
+  splitCanonical.externalOrderId = "canonical-split";
+  splitCanonical.lines = [splitCanonical.lines[1]!];
+  splitCanonical.sourceIdentityIds = ["item-2-fulfillment-2"];
+  const firstCanonical = structuredClone(canonical);
+  firstCanonical.lines = [firstCanonical.lines[0]!];
+  firstCanonical.sourceIdentityIds = ["item-1-fulfillment-1"];
+  assert.throws(
+    () =>
+      mergeEbayOrderObservations(
+        [provisional],
+        [firstCanonical, splitCanonical],
+        new Map([
+          [firstCanonical.externalOrderId, [provisional.sourceIdentityIds[0]!]],
+          [splitCanonical.externalOrderId, [provisional.sourceIdentityIds[1]!]],
+        ]),
+      ),
     (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
   );
 });

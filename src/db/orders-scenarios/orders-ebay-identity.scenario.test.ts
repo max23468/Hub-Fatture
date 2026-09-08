@@ -202,4 +202,141 @@ export async function run(context: OrdersTestContext) {
     }),
     (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
   );
+
+  const combinedPartA = structuredClone(provisional);
+  combinedPartA.externalOrderId = "158009594378-10084521158303";
+  combinedPartA.displayNumber = combinedPartA.externalOrderId;
+  combinedPartA.createdAt = "2026-09-03T18:30:00Z";
+  combinedPartA.updatedAt = "2026-09-03T18:32:33Z";
+  combinedPartA.total = "50.50";
+  combinedPartA.shippingAmount = "8.50";
+  combinedPartA.lines[0].externalLineId = combinedPartA.externalOrderId;
+  combinedPartA.lines[0].grossAmount = "42.00";
+  combinedPartA.sourceIdentityIds = [combinedPartA.externalOrderId];
+  const combinedPartB = structuredClone(combinedPartA);
+  combinedPartB.externalOrderId = "158009592316-10084667666812";
+  combinedPartB.displayNumber = combinedPartB.externalOrderId;
+  combinedPartB.lines[0].externalLineId = combinedPartB.externalOrderId;
+  combinedPartB.sourceIdentityIds = [combinedPartB.externalOrderId];
+  assert.deepEqual(
+    await orders.importOrders([combinedPartA, combinedPartB], {
+      id: 1,
+      requestId: "test-ebay-real-combined-provisionals",
+    }),
+    { imported: 2, updated: 0, ignored: 0 },
+  );
+
+  const paidCombined = structuredClone(canonical);
+  paidCombined.externalOrderId = "26-15090-88205";
+  paidCombined.displayNumber = paidCombined.externalOrderId;
+  paidCombined.createdAt = combinedPartA.createdAt;
+  paidCombined.updatedAt = "2026-09-07T18:28:39Z";
+  paidCombined.total = "92.85";
+  paidCombined.shippingAmount = "8.85";
+  paidCombined.lines = [
+    {
+      ...combinedPartA.lines[0],
+      externalLineId: "10083398275426",
+      description: "Divisionale San Marino 2006",
+    },
+    {
+      ...combinedPartB.lines[0],
+      externalLineId: "10083398275526",
+      description: "Divisionale San Marino 2007",
+    },
+  ];
+  paidCombined.sourceIdentityIds = ["158009594378-10083398275426", "158009592316-10083398275526"];
+  paidCombined.payments[0].externalPaymentId = "ebay-payment-combined-real";
+  paidCombined.payments[0].amount = paidCombined.total;
+  paidCombined.payments[0].paidAt = paidCombined.updatedAt;
+  assert.deepEqual(
+    await orders.importOrders([paidCombined], {
+      id: 1,
+      requestId: "test-ebay-real-combined-canonical",
+    }),
+    { imported: 1, updated: 0, ignored: 0 },
+  );
+  const combinedOrder = (
+    await database
+      .getPool()
+      .query<{ id: string; billing_case_id: string }>(
+        `SELECT id, billing_case_id FROM orders WHERE external_order_id = $1`,
+        [paidCombined.externalOrderId],
+      )
+  ).rows[0]!;
+  const storage = (
+    await database.getPool().query<{ id: string }>(
+      `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+       VALUES ('INVOICE_XML', 'test/ebay-combined-order.xml', $1, 1, 'application/xml')
+       RETURNING id`,
+      ["8".repeat(64)],
+    )
+  ).rows[0]!;
+  await database
+    .getPool()
+    .query("UPDATE billing_cases SET status = 'APPROVED' WHERE id = $1", [
+      combinedOrder.billing_case_id,
+    ]);
+  const documentId = (
+    await database.getPool().query<{ id: string }>(
+      `INSERT INTO documents
+         (billing_case_id, kind, status, document_type, series, document_date,
+          fiscal_profile_version, currency, total_amount, source_total_amount,
+          difference_amount, projection_sha256, payment_status, payment_method,
+          recipient_snapshot_json)
+       VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', '2026-09-04', 1,
+         'EUR', 9285, 9285, 0, $2, 'PAID', 'MP08', '{}')
+       RETURNING id`,
+      [combinedOrder.billing_case_id, "7".repeat(64)],
+    )
+  ).rows[0]!.id;
+  await database.getPool().query(
+    `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+     VALUES ($1, 'INVOICE', $2, 9285)`,
+    [documentId, combinedOrder.id],
+  );
+  await database.getPool().query(
+    `UPDATE documents
+     SET status = 'APPROVED', fiscal_year = 2026, fiscal_number = 900001,
+         approved_at = now(), xml_sha256 = $2, immutable_snapshot_json = '{}',
+         fiscal_profile_snapshot_json = '{}', storage_object_id = $3
+     WHERE id = $1`,
+    [documentId, "8".repeat(64), storage.id],
+  );
+  const pendingBeforeAbsorption = Number((await orders.dashboardSummary()).pending_payments);
+
+  const replayedCombined = structuredClone(paidCombined);
+  replayedCombined.sourceIdentityIds = [
+    combinedPartA.sourceIdentityIds[0],
+    combinedPartB.sourceIdentityIds[0],
+  ];
+  assert.deepEqual(
+    await orders.importOrders([replayedCombined], {
+      id: 1,
+      requestId: "test-ebay-real-combined-replay",
+    }),
+    { imported: 0, updated: 1, ignored: 0 },
+  );
+  const surviving = await database.getPool().query<{
+    id: string;
+    external_order_id: string;
+    document_id: string;
+  }>(
+    `SELECT orders.id, orders.external_order_id, document_orders.document_id
+     FROM orders
+     JOIN document_orders ON document_orders.order_id = orders.id
+     WHERE orders.external_order_id IN ($1, $2, $3)`,
+    [combinedPartA.externalOrderId, combinedPartB.externalOrderId, paidCombined.externalOrderId],
+  );
+  assert.deepEqual(surviving.rows, [
+    {
+      id: combinedOrder.id,
+      external_order_id: paidCombined.externalOrderId,
+      document_id: documentId,
+    },
+  ]);
+  assert.equal(
+    Number((await orders.dashboardSummary()).pending_payments),
+    pendingBeforeAbsorption - 2,
+  );
 }

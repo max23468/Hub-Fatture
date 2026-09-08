@@ -79,7 +79,7 @@ const EBAY_CARE_OF_ADDRESS_REPLAY = "066_ebay_care_of_address_replay.sql";
 const EBAY_PAYMENT_TIMESTAMP_REPLAY = "067_ebay_payment_timestamp_replay.sql";
 const EBAY_PARTIAL_REFUND_PAYMENT_STATUS = "068_ebay_partial_refund_payment_status.sql";
 const ARUBA_OUTBOUND_MONITORING = "070_aruba_outbound_monitoring.sql";
-const EBAY_PROVISIONAL_IDENTITY_REPLAY = "071_ebay_provisional_identity_replay.sql";
+const EBAY_COMBINED_ORDER_REPLAY = "077_ebay_combined_order_replay.sql";
 const SHOPIFY_SOURCE_CONFLICT_REPLAY = "072_shopify_source_conflict_replay.sql";
 const ARUBA_REMOTE_IDENTITY_AND_DRY_RUN_CONTAINMENT =
   "073_aruba_remote_identity_and_dry_run_containment.sql";
@@ -197,7 +197,7 @@ export {
   EBAY_PAYMENT_TIMESTAMP_REPLAY,
   EBAY_PARTIAL_REFUND_PAYMENT_STATUS,
   ARUBA_OUTBOUND_MONITORING,
-  EBAY_PROVISIONAL_IDENTITY_REPLAY,
+  EBAY_COMBINED_ORDER_REPLAY,
   SHOPIFY_SOURCE_CONFLICT_REPLAY,
   ARUBA_REMOTE_IDENTITY_AND_DRY_RUN_CONTAINMENT,
   CURRENT_MIGRATIONS,

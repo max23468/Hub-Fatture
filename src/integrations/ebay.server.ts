@@ -718,6 +718,20 @@ export function ebayTradingPendingLineId(payload: unknown) {
   return lineId;
 }
 
+export function ebayTradingSuccessorOrderId(payload: unknown, requestedOrderId: string) {
+  const order = record(payload);
+  const orderStatus = xmlText(order.OrderStatus);
+  const orderId = xmlText(order.OrderID) ?? xmlText(order.ExtendedOrderID);
+  if (orderStatus === "Completed" && orderId) return orderId;
+  const lineIds = xmlValues(record(order.TransactionArray).Transaction)
+    .map(record)
+    .map((transaction) => xmlText(transaction.OrderLineItemID));
+  if (["Active", "Cancelled"].includes(orderStatus ?? "") && lineIds.includes(requestedOrderId)) {
+    return null;
+  }
+  throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+}
+
 function tradingOrders(response: Record<string, unknown>) {
   return xmlValues(record(response.OrderArray).Order).flatMap((value) => {
     const order = record(value);
@@ -840,6 +854,7 @@ async function fetchEbayTradingPendingOrders(
   end: string,
 ) {
   const observed = new Map<string, OrderInput>();
+  const successorIdentityIds = new Map<string, string[]>();
   const activeLineIds = new Set<string>();
   for (let page = 1; page <= EBAY_TRADING_MAX_PAGES; page += 1) {
     // react-doctor-disable-next-line react-doctor/async-await-in-loop
@@ -885,9 +900,7 @@ async function fetchEbayTradingPendingOrders(
     }
   }
 
-  const missing = [...missingLineIds];
-  for (let offset = 0; offset < missing.length; offset += 20) {
-    const requested = missing.slice(offset, offset + 20);
+  for (const requested of missingLineIds) {
     // react-doctor-disable-next-line react-doctor/async-await-in-loop
     const response = await ebayTradingCall(environment, token, "GetOrders", {
       DetailLevel: "ReturnAll",
@@ -895,39 +908,72 @@ async function fetchEbayTradingPendingOrders(
       OrderIDArray: { OrderID: requested },
     });
     const targetedOrders = xmlValues(record(response.OrderArray).Order).map(record);
-    for (const targeted of targetedOrders) {
-      for (const transaction of xmlValues(record(targeted.TransactionArray).Transaction).map(
-        record,
-      )) {
-        const lineId = xmlText(transaction.OrderLineItemID);
-        if (lineId) missingLineIds.delete(lineId);
-      }
-      if (!ebayTradingOrderIsImportable(targeted)) continue;
+    if (targetedOrders.length !== 1) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    const targeted = targetedOrders[0]!;
+    const successorOrderId = ebayTradingSuccessorOrderId(targeted, requested);
+    missingLineIds.delete(requested);
+    if (successorOrderId) {
+      const identities = successorIdentityIds.get(successorOrderId) ?? [];
+      identities.push(requested);
+      successorIdentityIds.set(successorOrderId, identities);
+    } else {
       const order = mapEbayTradingOrder(targeted, accountReference);
       observed.set(order.externalOrderId, order);
     }
   }
   if (missingLineIds.size) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
-  return [...observed.values()];
+  return { orders: [...observed.values()], successorIdentityIds };
 }
 
 export function mergeEbayOrderObservations(
   tradingOrders: OrderInput[],
   fulfillmentOrders: OrderInput[],
+  successorIdentityIds = new Map<string, string[]>(),
 ) {
-  const canonicalIdentityIds = new Set(
-    fulfillmentOrders.flatMap((order) => order.sourceIdentityIds),
-  );
+  const unresolvedSuccessors = new Set(successorIdentityIds.keys());
+  const alignedFulfillmentOrders = fulfillmentOrders.map((order) => {
+    const successorIds = [...new Set(successorIdentityIds.get(order.externalOrderId) ?? [])];
+    if (!successorIds.length) return order;
+    unresolvedSuccessors.delete(order.externalOrderId);
+    const identities = [
+      ...successorIds,
+      ...order.sourceIdentityIds.filter((identity) => !successorIds.includes(identity)),
+    ].slice(0, order.lines.length);
+    if (successorIds.length > order.lines.length || identities.length !== order.lines.length) {
+      throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    }
+    return { ...order, sourceIdentityIds: identities };
+  });
+  if (unresolvedSuccessors.size) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  const canonicalOwnerByIdentity = new Map<string, string>();
+  for (const order of alignedFulfillmentOrders) {
+    for (const identity of order.sourceIdentityIds) {
+      const owner = canonicalOwnerByIdentity.get(identity);
+      if (owner && owner !== order.externalOrderId) {
+        throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      }
+      canonicalOwnerByIdentity.set(identity, order.externalOrderId);
+    }
+  }
   const provisionalOrders = tradingOrders.filter((order) => {
+    const canonicalOwners = new Set(
+      order.sourceIdentityIds.flatMap((identity) => {
+        const owner = canonicalOwnerByIdentity.get(identity);
+        return owner ? [owner] : [];
+      }),
+    );
     const matchedIdentities = order.sourceIdentityIds.filter((identity) =>
-      canonicalIdentityIds.has(identity),
+      canonicalOwnerByIdentity.has(identity),
     ).length;
-    if (matchedIdentities > 0 && matchedIdentities !== order.sourceIdentityIds.length) {
+    if (
+      canonicalOwners.size > 1 ||
+      (matchedIdentities > 0 && matchedIdentities !== order.sourceIdentityIds.length)
+    ) {
       throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
     }
     return matchedIdentities === 0;
   });
-  return { orders: [...provisionalOrders, ...fulfillmentOrders], provisionalOrders };
+  return { orders: [...provisionalOrders, ...alignedFulfillmentOrders], provisionalOrders };
 }
 
 export function ebayFulfillmentHeaders(token: string, marketplaceId?: string) {
@@ -948,6 +994,42 @@ async function fetchOrder(
     `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order/${encodeURIComponent(orderId)}?fieldGroups=TAX_BREAKDOWN`,
     { headers: ebayFulfillmentHeaders(token, marketplaceId) },
   );
+}
+
+async function fetchOrdersByIds(
+  environment: "sandbox" | "production",
+  token: string,
+  accountReference: string,
+  orderIds: string[],
+) {
+  const orders: OrderInput[] = [];
+  for (let offset = 0; offset < orderIds.length; offset += 50) {
+    const requested = orderIds.slice(offset, offset + 50);
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    const response = await providerJson(
+      `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order?` +
+        new URLSearchParams({
+          orderids: requested.join(","),
+          fieldGroups: "TAX_BREAKDOWN",
+          limit: "50",
+        }),
+      { headers: ebayFulfillmentHeaders(token) },
+    );
+    const returned = new Set<string>();
+    for (const summary of records(response.orders)) {
+      const orderId = text(summary.orderId);
+      if (!orderId || !requested.includes(orderId) || returned.has(orderId)) {
+        throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      }
+      returned.add(orderId);
+      const marketplaceId = ebayListingMarketplaceId(summary);
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
+      const detail = await fetchOrder(environment, token, orderId, marketplaceId);
+      orders.push(mapEbayOrder(detail, accountReference));
+    }
+    if (returned.size !== requested.length) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  return orders;
 }
 
 const ebaySyncContinuationSchema = z.object({
@@ -976,8 +1058,8 @@ async function fetchOrdersBatch(
   const environment = connection.environment === "SANDBOX" ? "sandbox" : "production";
   const token = await accessToken(environment, connection.credentials.refreshToken);
   const end = continuation?.end ?? new Date().toISOString();
-  const fulfillmentOrders: OrderInput[] = [];
-  const tradingOrders = includeTrading
+  const fulfillmentOrders = new Map<string, OrderInput>();
+  const trading = includeTrading
     ? await fetchEbayTradingPendingOrders(
         environment,
         token,
@@ -985,7 +1067,11 @@ async function fetchOrdersBatch(
         start,
         end,
       )
-    : [];
+    : { orders: [], successorIdentityIds: new Map<string, string[]>() };
+  const successorOrders = await fetchOrdersByIds(environment, token, connection.accountReference, [
+    ...trading.successorIdentityIds.keys(),
+  ]);
+  for (const order of successorOrders) fulfillmentOrders.set(order.externalOrderId, order);
   let url: string | null = continuation
     ? ebayNextUrl(environment, continuation.next)
     : `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order?` +
@@ -1005,11 +1091,15 @@ async function fetchOrdersBatch(
       // Tax identifier is contractually present only on getOrder; la sequenza evita burst di 50 richieste.
       // react-doctor-disable-next-line react-doctor/async-await-in-loop
       const detail = await fetchOrder(environment, token, orderId, marketplaceId);
-      fulfillmentOrders.push(mapEbayOrder(detail, connection.accountReference));
+      fulfillmentOrders.set(orderId, mapEbayOrder(detail, connection.accountReference));
     }
     url = ebayNextUrl(environment, response.next);
   }
-  const merged = mergeEbayOrderObservations(tradingOrders, fulfillmentOrders);
+  const merged = mergeEbayOrderObservations(
+    trading.orders,
+    [...fulfillmentOrders.values()],
+    trading.successorIdentityIds,
+  );
   return {
     connection,
     end,
