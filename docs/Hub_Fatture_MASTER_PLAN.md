@@ -937,6 +937,10 @@ Il piano assume che il dato fiscale sia disponibile nel dettaglio del singolo or
 La richiesta `getOrder` include `X-EBAY-C-MARKETPLACE-ID` derivato dall'unico
 `lineItems[].listingMarketplaceId` del riepilogo. Senza l'header eBay può restituire la
 forma generica del buyer e omettere `taxIdentifier` anche per ordini `EBAY_IT`.
+Quando l'ID arriva dal collegamento Trading e manca il riepilogo Fulfillment, una prima lettura
+puntuale `getOrder(orderId)` senza l'header ricava e verifica il marketplace; la seconda lettura
+con l'header conserva il contratto fiscale. La sincronizzazione non usa il filtro `orderids`
+dell'elenco come prova dell'identità richiesta.
 
 Per venditori italiani il valore può rappresentare Codice Fiscale oppure P.IVA. Non dedurne il tipo soltanto dalla presenza: conservare il tipo dichiarato da eBay e validare il formato; i casi incoerenti restano da verificare.
 

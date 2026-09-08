@@ -991,39 +991,31 @@ async function fetchOrder(
   );
 }
 
-async function fetchOrdersByIds(
+export async function fetchEbayOrdersByIds(
   environment: "sandbox" | "production",
   token: string,
   accountReference: string,
   orderIds: string[],
 ) {
   const orders: OrderInput[] = [];
-  for (let offset = 0; offset < orderIds.length; offset += 50) {
-    const requested = orderIds.slice(offset, offset + 50);
-    const requestedSet = new Set(requested);
+  for (const requestedOrderId of orderIds) {
     // react-doctor-disable-next-line react-doctor/async-await-in-loop
-    const response = await providerJson(
-      `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order?` +
-        new URLSearchParams({
-          orderids: requested.join(","),
-          fieldGroups: "TAX_BREAKDOWN",
-          limit: "50",
-        }),
+    const summary = await providerJson(
+      `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order/${encodeURIComponent(requestedOrderId)}?fieldGroups=TAX_BREAKDOWN`,
       { headers: ebayFulfillmentHeaders(token) },
     );
-    const returned = new Set<string>();
-    for (const summary of records(response.orders)) {
-      const orderId = text(summary.orderId);
-      if (!orderId || !requestedSet.has(orderId) || returned.has(orderId)) {
-        throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
-      }
-      returned.add(orderId);
-      const marketplaceId = ebayListingMarketplaceId(summary);
-      // react-doctor-disable-next-line react-doctor/async-await-in-loop
-      const detail = await fetchOrder(environment, token, orderId, marketplaceId);
-      orders.push(mapEbayOrder(detail, accountReference));
+    if (text(record(summary).orderId) !== requestedOrderId) {
+      throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
     }
-    if (returned.size !== requested.length) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    const marketplaceId = ebayListingMarketplaceId(summary);
+    // La seconda lettura include il marketplace affinché eBay restituisca il tax identifier.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    const detail = await fetchOrder(environment, token, requestedOrderId, marketplaceId);
+    const order = mapEbayOrder(detail, accountReference);
+    if (order.externalOrderId !== requestedOrderId) {
+      throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    }
+    orders.push(order);
   }
   return orders;
 }
@@ -1068,9 +1060,12 @@ async function fetchOrdersBatch(
         end,
       )
     : { orders: [], successorIdentityIds: new Map<string, string[]>() };
-  const successorOrders = await fetchOrdersByIds(environment, token, connection.accountReference, [
-    ...trading.successorIdentityIds.keys(),
-  ]);
+  const successorOrders = await fetchEbayOrdersByIds(
+    environment,
+    token,
+    connection.accountReference,
+    [...trading.successorIdentityIds.keys()],
+  );
   for (const order of successorOrders) fulfillmentOrders.set(order.externalOrderId, order);
   let url: string | null = continuation
     ? ebayNextUrl(environment, continuation.next)
