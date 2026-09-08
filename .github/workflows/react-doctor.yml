@@ -39,7 +39,7 @@ jobs:
           fi
       - id: doctor
         if: steps.impact.outputs.react == 'true'
-        uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
+        uses: millionco/react-doctor@013f7373f91a3b9e68bd1dc7d4d354f4b041b117 # v2.2.9
         with:
           version: latest
           scope: ${{ github.event_name == 'pull_request' && 'changed' || 'full' }}
