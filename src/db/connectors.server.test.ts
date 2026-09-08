@@ -1209,6 +1209,49 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     await importOrders([revisedOrder], { type: "SYSTEM", requestId: "privacy-revision" });
     assert.equal((await getPool().query("SELECT * FROM order_source_revisions")).rowCount, 1);
 
+    const historicalCustomer = await getPool().query<{ id: string }>(
+      `INSERT INTO customers
+        (kind, match_key, display_name, billing_address_json, source_confidence, review_required)
+       VALUES ('UNKNOWN', 'privacy-historical-customer', 'Cliente storico sintetico', '{}',
+               'AMBIGUOUS', true)
+       RETURNING id`,
+    );
+    const orphanCase = await getPool().query<{ id: string }>(
+      `INSERT INTO billing_cases
+        (customer_id, local_order_date, currency, status, customer_snapshot_json,
+         do_not_transmit_reason)
+       VALUES ($1, '2026-08-01', 'EUR', 'DO_NOT_TRANSMIT', '{}',
+               'Regressione privacy sintetica')
+       RETURNING id`,
+      [historicalCustomer.rows[0]!.id],
+    );
+    await getPool().query(
+      `INSERT INTO order_source_revisions
+        (order_id, billing_case_id, previous_normalized_snapshot_json,
+         current_normalized_snapshot_json)
+       SELECT id, $2, normalized_snapshot_json, normalized_snapshot_json
+       FROM orders WHERE external_order_id = $1`,
+      ["gid://shopify/Order/1002", orphanCase.rows[0]!.id],
+    );
+    assert.deepEqual(
+      await connectors.processEbayDeletionRecord({
+        externalEventId: "privacy-ebay-unrelated-case",
+        payloadSha256: "e".repeat(64),
+        identifiers: ["buyer-senza-ordini"],
+      }),
+      { duplicate: false, deletedOrders: 0 },
+    );
+    assert.equal(
+      (await getPool().query("SELECT 1 FROM billing_cases WHERE id = $1", [orphanCase.rows[0]!.id]))
+        .rowCount,
+      1,
+    );
+    await getPool().query("DELETE FROM order_source_revisions WHERE billing_case_id = $1", [
+      orphanCase.rows[0]!.id,
+    ]);
+    await getPool().query("DELETE FROM billing_cases WHERE id = $1", [orphanCase.rows[0]!.id]);
+    await getPool().query("DELETE FROM customers WHERE id = $1", [historicalCustomer.rows[0]!.id]);
+
     const dataRequestBody = Buffer.from(
       JSON.stringify({
         shop_domain: "shop.example.invalid",
