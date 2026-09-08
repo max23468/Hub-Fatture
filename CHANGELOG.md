@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.25
+
+- La verifica finale delle fatture Aruba conserva la città del destinatario letta dall’XML ufficiale, così i collegamenti automatici basati su nome, città e Paese vengono archiviati senza interrompere la sincronizzazione.
+
 ## 1.3.24
 
 - Il telefono del destinatario eBay viene letto dal campo `phoneNumber` dell’oggetto provider. L’upgrade elimina il vecchio testo `[object Object]` dai dati normalizzati e rilegge gli ordini interessati senza aprire nuovi controlli. Le transazioni completate estranee ai provvisori locali non interrompono più la sincronizzazione.

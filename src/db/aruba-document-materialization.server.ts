@@ -259,6 +259,7 @@ async function materializeExternalInvoice(
       value: identifier.value,
     })),
     recipientCountryCode: imported.input.recipient.address.countryCode,
+    recipientCity: imported.input.recipient.address.city,
     recipientAddress: [
       imported.input.recipient.address.line1,
       imported.input.recipient.address.postalCode,
