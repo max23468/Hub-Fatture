@@ -9,6 +9,7 @@ export interface ArubaOrderCandidateSource {
   recipient_name: string | null;
   recipient_tax_identifiers: FiscalIdentity[];
   recipient_country_code: string | null;
+  recipient_city?: string | null;
   recipient_address: string | null;
   billing_case_id: string | null;
   refund_timing_ambiguous?: boolean;
@@ -34,6 +35,7 @@ export function arubaOrderCandidateFromSource(
     recipientName: source.recipient_name,
     recipientTaxIdentifiers: source.recipient_tax_identifiers,
     recipientCountryCode: source.recipient_country_code,
+    recipientCity: source.recipient_city ?? null,
     recipientAddress: source.recipient_address,
     ...(source.refund_timing_ambiguous === undefined
       ? {}

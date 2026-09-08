@@ -236,10 +236,14 @@ test("P.IVA italiana e indirizzo trattengono un importo diverso anche con ragion
     date: true,
     sameDay: false,
     nearDate: true,
+    withinSevenDays: true,
     total: false,
     recipient: false,
+    exactRecipient: false,
     taxId: true,
     fiscalCode: false,
+    city: false,
+    country: true,
     address: true,
     bankTransferPayment: false,
     refundTimingClear: true,
@@ -298,6 +302,73 @@ test("un candidato univoco richiede data, importo e identità coerenti", () => {
   assert.equal(result.status, "MATCHED");
 });
 
+test("nome, città e Paese univoci collegano una TD01 entro sette giorni", () => {
+  const locationRemote: RemoteInventoryDocument = {
+    ...remote,
+    documentDate: "2026-08-12",
+    recipientName: "Mario Rossi",
+    recipientTaxId: null,
+    recipientTaxIdentifiers: [],
+    recipientCountryCode: "DE",
+    recipientCity: "Hamburg",
+    recipientAddress: "Via Aruba 9 22087 Hamburg DE",
+    xmlSha256: "a".repeat(64),
+  };
+  const candidate = {
+    id: "location-match",
+    provider: "EBAY" as const,
+    displayNumber: "62427",
+    localOrderDate: "2026-08-05",
+    billableAmount: locationRemote.totalAmount,
+    recipientName: "Mario Rossi",
+    recipientTaxIdentifiers: [],
+    recipientCountryCode: "DE",
+    recipientCity: "Hamburg",
+    recipientAddress: "Via Marketplace 2 22100 Hamburg DE",
+  };
+
+  const matched = selectOrderMatch(locationRemote, [candidate]);
+  assert.equal(matched.status, "MATCHED");
+  assert.equal(matched.evaluations[0]?.signals.withinSevenDays, true);
+  assert.equal(matched.evaluations[0]?.signals.city, true);
+  assert.equal(matched.evaluations[0]?.signals.country, true);
+  assert.equal(matched.evaluations[0]?.signals.address, false);
+  assert.equal(
+    selectOrderMatch(locationRemote, [{ ...candidate, localOrderDate: "2026-08-04" }]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(locationRemote, [{ ...candidate, recipientCity: "Berlin" }]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(locationRemote, [{ ...candidate, recipientCountryCode: "AT" }]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(locationRemote, [
+      { ...candidate, billableAmount: candidate.billableAmount + 1 },
+    ]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(locationRemote, [{ ...candidate, recipientName: "Mariio Rossi" }]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(locationRemote, [candidate, { ...candidate, id: "collision" }]).status,
+    "AMBIGUOUS",
+  );
+  assert.equal(
+    selectOrderMatch({ ...locationRemote, documentType: "TD04" }, [candidate]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch({ ...locationRemote, xmlSha256: null }, [candidate]).status,
+    "UNMATCHED",
+  );
+});
+
 test("codice fiscale, data e importo univoci prevalgono su nome e indirizzo discordanti", () => {
   const candidate = {
     provider: "SHOPIFY" as const,
@@ -318,10 +389,14 @@ test("codice fiscale, data e importo univoci prevalgono su nome e indirizzo disc
     date: true,
     sameDay: true,
     nearDate: true,
+    withinSevenDays: true,
     total: true,
     recipient: false,
+    exactRecipient: false,
     taxId: true,
     fiscalCode: true,
+    city: false,
+    country: false,
     address: false,
     bankTransferPayment: false,
     refundTimingClear: true,
@@ -802,10 +877,14 @@ function ambiguousCandidate(
       date: true,
       sameDay,
       nearDate,
+      withinSevenDays: true,
       total: true,
       recipient: true,
+      exactRecipient: true,
       taxId: true,
       fiscalCode: true,
+      city: false,
+      country: false,
       address: false,
     },
   };

@@ -1833,7 +1833,7 @@ Cronologia append-only delle osservazioni API, manuali e transitorie del browser
 
 #### `aruba_document_matches`
 
-Collegamenti fra inventario remoto e documenti, ordini, preparazioni o rimborsi locali, con stato `MATCHED`, `UNMATCHED`, `AMBIGUOUS`, `PROFILE_CONFLICT`, `ERROR` o `UNKNOWN_REMOTE_STATE`, segnali/versione del matcher e decisione automatica o manuale auditata. Un match automatico richiede unicità e XML ufficiale coerente; il solo totale non è mai sufficiente. Quando manca il file ufficiale, data vicina e destinatario coincidente trattengono la preparazione anche se il totale differisce: la causa dello scarto non viene dedotta e il documento resta da verificare manualmente. Per una TD01 senza riferimento esplicito, la coincidenza esatta di codice fiscale, data e totale fatturabile può identificare automaticamente l'unico ordine candidato anche se nome o indirizzo differiscono; le difformità restano nei segnali auditati e due candidati compatibili mantengono lo stato `AMBIGUOUS`. La sola P.IVA continua a richiedere almeno un secondo segnale anagrafico. Quando più TD01 e più ordini hanno identità fiscale, importo e finestra temporale forti ma risultano indistinguibili singolarmente, l'automazione può risolverli soltanto come coorte completa: stessa impronta di riconciliazione, biiezione senza candidati già rivendicati e associazione monotona fra progressivi fiscali e cronologia degli ordini. Una coorte incompleta, con riferimenti espliciti o non biunivoca resta `AMBIGUOUS`. Per le TD04 il collegamento identifica l'insieme esatto dei rimborsi coperti e aggiorna `credit_document_id` atomicamente soltanto dopo un esito che conferma l'emissione.
+Collegamenti fra inventario remoto e documenti, ordini, preparazioni o rimborsi locali, con stato `MATCHED`, `UNMATCHED`, `AMBIGUOUS`, `PROFILE_CONFLICT`, `ERROR` o `UNKNOWN_REMOTE_STATE`, segnali/versione del matcher e decisione automatica o manuale auditata. Un match automatico richiede unicità e XML ufficiale coerente; il solo totale non è mai sufficiente. Quando manca il file ufficiale, data vicina e destinatario coincidente trattengono la preparazione anche se il totale differisce: la causa dello scarto non viene dedotta e il documento resta da verificare manualmente. Per una TD01 senza riferimento esplicito, l’unico ordine con totale fatturabile coincidente viene collegato automaticamente anche quando via e CAP differiscono se nome, città e Paese coincidono e la data del documento segue quella dell’ordine di non più di sette giorni. La coincidenza esatta di codice fiscale, data e totale fatturabile può identificare automaticamente l'unico ordine candidato anche se nome o indirizzo differiscono; le difformità restano nei segnali auditati e due candidati compatibili mantengono lo stato `AMBIGUOUS`. La sola P.IVA continua a richiedere almeno un secondo segnale anagrafico. Quando più TD01 e più ordini hanno identità fiscale, importo e finestra temporale forti ma risultano indistinguibili singolarmente, l'automazione può risolverli soltanto come coorte completa: stessa impronta di riconciliazione, biiezione senza candidati già rivendicati e associazione monotona fra progressivi fiscali e cronologia degli ordini. Una coorte incompleta, con riferimenti espliciti o non biunivoca resta `AMBIGUOUS`. Per le TD04 il collegamento identifica l'insieme esatto dei rimborsi coperti e aggiorna `credit_document_id` atomicamente soltanto dopo un esito che conferma l'emissione.
 
 #### `aruba_sync_runs`
 
@@ -3631,12 +3631,13 @@ Una coincidenza limitata a stesso giorno e totale resta non bloccante e non prod
 collegamento automatico. Se una prova esterna identifica espressamente sia il numero del documento
 Aruba sia l'ordine marketplace, il titolare può collegarli con motivazione e doppia conferma:
 l'eccezione, la prova dichiarata e gli identificativi tecnici restano nell'audit.
-L'assenza del riferimento esplicito non impedisce il collegamento soltanto quando provider,
-data, destinatario e totale fatturabile individuano un unico ordine storico aperto. La
-coincidenza esatta del codice fiscale vale come identità del destinatario anche se nome o
-indirizzo differiscono, ma non supera una collisione fra più ordini; la sola P.IVA richiede un
-secondo segnale anagrafico. Un marker di un marketplace diverso o qualsiasi collisione mantiene
-l'ordine non riconciliato.
+L'assenza del riferimento esplicito non impedisce il collegamento quando provider, totale
+fatturabile e identità individuano un unico ordine storico aperto. Per una TD01, nome, città e
+Paese coincidenti costituiscono identità sufficiente se la data del documento segue quella
+dell’ordine di non più di sette giorni, anche quando via e CAP differiscono. La coincidenza esatta
+del codice fiscale vale come identità del destinatario anche se nome o indirizzo differiscono, ma
+non supera una collisione fra più ordini; la sola P.IVA richiede un secondo segnale anagrafico. Un
+marker di un marketplace diverso o qualsiasi collisione mantiene l'ordine non riconciliato.
 
 Per registrare l'esito “già fatturato”, acquisire anche l'XML ufficiale della fattura Aruba, verificarne profilo, numero e riferimento all'ordine quando presente oppure l'insieme univoco delle altre prove, quindi conservarlo come documento storico immutabile. La sola nota testuale non chiude il confronto quando esistono rimborsi post-emissione, perché la TD04 deve riferire la fattura originaria.
 

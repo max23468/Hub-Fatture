@@ -100,6 +100,9 @@ export async function arubaOrderCandidates(client: pg.PoolClient, remote: Remote
             coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,countryCode}',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}')
               AS recipient_country_code,
+            coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,city}',
+              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,city}')
+              AS recipient_city,
             concat_ws(' ',
               coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,line1}',
                 orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}'),
@@ -152,6 +155,8 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
               AS recipient_tax_identifiers,
             orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'
               AS recipient_country_code,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,city}'
+              AS recipient_city,
             concat_ws(' ',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}',
@@ -229,6 +234,8 @@ async function submittedCreditNoteCandidates(client: pg.PoolClient, documentId: 
               AS recipient_tax_identifiers,
             orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'
               AS recipient_country_code,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,city}'
+              AS recipient_city,
             concat_ws(' ',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}',

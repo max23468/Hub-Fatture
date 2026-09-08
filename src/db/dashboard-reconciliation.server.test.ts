@@ -678,6 +678,44 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
 
     await client.getPool().query(
       `UPDATE aruba_document_matches
+       SET matcher_version = 13,
+           candidates_json = jsonb_build_array(jsonb_build_object(
+             'candidateId', $2::text, 'orderIds', jsonb_build_array($2::text),
+             'potential', false, 'compatible', false, 'reviewable', true,
+             'issuedInvoiceDocumentId', NULL,
+             'signals', jsonb_build_object(
+               'provider', true, 'date', true, 'sameDay', false, 'nearDate', false,
+               'total', true, 'recipient', true, 'taxId', false, 'address', false)))
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id, order.rows[0]!.id],
+    );
+    const locationReplay: string[] = [];
+    const locationReplayTransaction = await client.getPool().connect();
+    try {
+      await locationReplayTransaction.query("BEGIN");
+      const matcherUpgrade = await import("./aruba-matcher-upgrade.server.ts");
+      await matcherUpgrade.reconcileCachedArubaMatcherUpgrade(
+        locationReplayTransaction,
+        "MOCK",
+        "synthetic-aruba-account",
+        async (remoteDocumentId) => {
+          locationReplay.push(remoteDocumentId);
+        },
+      );
+      await locationReplayTransaction.query("ROLLBACK");
+    } finally {
+      locationReplayTransaction.release();
+    }
+    assert.deepEqual(locationReplay, [remote.rows[0]!.id]);
+    await client.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = jsonb_set(candidates_json, '{0,reviewable}', 'false'::jsonb)
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id],
+    );
+
+    await client.getPool().query(
+      `UPDATE aruba_document_matches
        SET candidates_json = jsonb_set(
          jsonb_set(
            jsonb_set(candidates_json, '{0,probe}', 'false'::jsonb),
