@@ -57,6 +57,57 @@ export async function run(context: OrdersTestContext) {
     },
   );
 
+  const ebayPhoneMapper = structuredClone(fixture[0]);
+  ebayPhoneMapper.provider = "EBAY";
+  ebayPhoneMapper.externalOrderId = "ebay-order-phone-mapper";
+  ebayPhoneMapper.externalCustomerId = "ebay-customer-phone-mapper";
+  ebayPhoneMapper.createdAt = "2026-09-08T08:00:00Z";
+  ebayPhoneMapper.updatedAt = "2026-09-08T09:00:00Z";
+  ebayPhoneMapper.customer.taxIdentifiers[0].value = "RSSMRA80A01H505U";
+  ebayPhoneMapper.customer.phone = "[object Object]";
+  ebayPhoneMapper.sourceSnapshot = {
+    fulfillmentStartInstructions: [
+      { shippingStep: { shipTo: { primaryPhone: { phoneNumber: "+39 011 0000000" } } } },
+    ],
+  };
+  await orders.importOrders([ebayPhoneMapper], {
+    id: 1,
+    requestId: "test-ebay-phone-mapper-before",
+  });
+  const correctedEbayPhone = structuredClone(ebayPhoneMapper);
+  correctedEbayPhone.customer.phone = "+39 011 0000000";
+  await orders.importOrders([correctedEbayPhone], {
+    id: 1,
+    requestId: "test-ebay-phone-mapper-after",
+  });
+  assert.deepEqual(
+    (
+      await database.getPool().query(
+        `SELECT billing_cases.status,
+                billing_cases.customer_snapshot_json ->> 'phone' AS phone,
+                orders.trigger_status,
+                (SELECT count(*) FROM order_source_revisions
+                 WHERE order_id = orders.id)::int AS revision_count,
+                (SELECT count(*) FROM audit_events
+                 WHERE entity_type = 'ORDER' AND entity_id = orders.id::text
+                   AND action = 'ORDER_SOURCE_REVIEWED'
+                   AND metadata_json ->> 'automaticAlignment' = 'PHONE_MAPPER')::int
+                  AS automatic_alignment_count
+         FROM orders
+         JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+         WHERE orders.external_order_id = $1`,
+        [ebayPhoneMapper.externalOrderId],
+      )
+    ).rows[0],
+    {
+      status: "READY",
+      phone: "+39 011 0000000",
+      trigger_status: "GROUPED",
+      revision_count: 0,
+      automatic_alignment_count: 1,
+    },
+  );
+
   const ebayEmailUpdate = structuredClone(fixture[0]);
   ebayEmailUpdate.provider = "EBAY";
   ebayEmailUpdate.externalOrderId = "ebay-order-email-only";

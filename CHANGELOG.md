@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.24
+
+- Il telefono del destinatario eBay viene letto dal campo `phoneNumber` dell’oggetto provider. L’upgrade elimina il vecchio testo `[object Object]` dai dati normalizzati e rilegge gli ordini interessati senza aprire nuovi controlli. Le transazioni completate estranee ai provvisori locali non interrompono più la sincronizzazione.
+- Una TD01 Aruba con XML ufficiale viene collegata automaticamente all’unico ordine con importo coincidente quando nome, città e Paese coincidono e la data del documento segue quella dell’ordine di non più di sette giorni. Il replay aggiorna anche i controlli già aperti.
+
 ## 1.3.23
 
 - La sincronizzazione eBay recupera ogni ordine definitivo indicato da Trading tramite il suo endpoint puntuale, verifica l’identità restituita e conserva la rilettura con marketplace necessaria ai dati fiscali.

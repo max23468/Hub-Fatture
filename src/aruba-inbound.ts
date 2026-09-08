@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 13;
+export const ARUBA_MATCHER_VERSION = 14;
 export const ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES = ["TD01", "TD04"] as const;
 
 export const arubaRemoteStatusSchema = z.enum([
@@ -42,6 +42,7 @@ export const remoteInventoryDocumentSchema = z.object({
     .regex(/^[A-Z]{2}$/)
     .nullable()
     .default(null),
+  recipientCity: z.string().trim().max(200).nullable().optional(),
   recipientAddress: z.string().trim().max(500).nullable().default(null),
   totalAmount: z.number().int().nonnegative(),
   currency: z.literal("EUR").default("EUR"),
@@ -206,6 +207,7 @@ export interface ArubaOrderCandidate {
   recipientName: string | null;
   recipientTaxIdentifiers: FiscalIdentity[];
   recipientCountryCode?: string | null;
+  recipientCity?: string | null;
   recipientAddress: string | null;
   refundTimingAmbiguous?: boolean;
   bankTransferPaidOnDocumentDate?: boolean;
@@ -224,10 +226,14 @@ export interface CandidateEvaluation {
     date: boolean;
     sameDay: boolean;
     nearDate: boolean;
+    withinSevenDays: boolean;
     total: boolean;
     recipient: boolean;
+    exactRecipient: boolean;
     taxId: boolean;
     fiscalCode: boolean;
+    city: boolean;
+    country: boolean;
     address: boolean;
     bankTransferPayment?: boolean;
     refundTimingClear?: boolean;
@@ -537,6 +543,7 @@ function evaluateOrderCandidate(
   const date = elapsedDays >= 0 && elapsedDays <= 31;
   const sameDay = elapsedDays === 0;
   const nearDate = elapsedDays >= 0 && elapsedDays <= 3;
+  const withinSevenDays = elapsedDays >= 0 && elapsedDays <= 7;
   const total = remote.totalAmount === candidate.billableAmount;
   const remoteName = normalizedRecipientName(remote.recipientName);
   const sameForeignCountry = Boolean(
@@ -548,6 +555,9 @@ function evaluateOrderCandidate(
     remote.recipientName,
     candidate.recipientName,
     sameForeignCountry,
+  );
+  const exactRecipient = Boolean(
+    remoteName && remoteName === normalizedRecipientName(candidate.recipientName),
   );
   const remoteTaxIds = remote.recipientTaxIdentifiers.map((identifier) =>
     canonicalFiscalIdentity(identifier, remote.recipientCountryCode),
@@ -584,6 +594,15 @@ function evaluateOrderCandidate(
     ),
   );
   const fiscalCode = remoteFiscalCodes.some((value) => candidateFiscalCodes.has(value));
+  const city = Boolean(
+    normalizedMatchText(remote.recipientCity) &&
+    normalizedMatchText(remote.recipientCity) === normalizedMatchText(candidate.recipientCity),
+  );
+  const country = Boolean(
+    remote.recipientCountryCode &&
+    candidate.recipientCountryCode &&
+    remote.recipientCountryCode === candidate.recipientCountryCode,
+  );
   const remoteAddress = normalizedMatchText(remote.recipientAddress);
   const candidateAddress = normalizedMatchText(candidate.recipientAddress);
   const address = Boolean(
@@ -605,6 +624,13 @@ function evaluateOrderCandidate(
       ? (sameDay || bankTransferPayment) && recipient
       : taxId && (fiscalCode || identitySignals >= 2)
     : identitySignals >= 2;
+  const nameLocationIsCompatible =
+    remote.documentType === "TD01" &&
+    Boolean(remote.xmlSha256) &&
+    withinSevenDays &&
+    exactRecipient &&
+    city &&
+    country;
   const refundTimingClear = !candidate.refundTimingAmbiguous;
   const probe = provider && nearDate && total && refundTimingClear;
   const potential = probe && recipient && hasSpecificRecipientName(remote.recipientName);
@@ -616,7 +642,9 @@ function evaluateOrderCandidate(
       date &&
       total &&
       refundTimingClear &&
-      ((explicitReference && referencedRecipientIsCompatible) || inferredRecipientIsCompatible),
+      ((explicitReference && referencedRecipientIsCompatible) ||
+        inferredRecipientIsCompatible ||
+        nameLocationIsCompatible),
     reviewable: provider && date && total && identitySignals >= 1 && refundTimingClear,
     potential,
     probe,
@@ -626,10 +654,14 @@ function evaluateOrderCandidate(
       date,
       sameDay,
       nearDate,
+      withinSevenDays,
       total,
       recipient,
+      exactRecipient,
       taxId,
       fiscalCode,
+      city,
+      country,
       address,
       bankTransferPayment,
       refundTimingClear,

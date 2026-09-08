@@ -69,6 +69,13 @@ export async function reconcileCachedArubaMatcherUpgrade(
          SELECT 1 FROM jsonb_array_elements(matches.candidates_json) external_candidate
          WHERE ${arubaExternalEvidenceCandidateSql("external_candidate", "remote")}
             OR ${arubaTaxIdentityReplayCandidateSql("external_candidate", "remote")}
+            OR (
+              external_candidate ->> 'issuedInvoiceDocumentId' IS NULL
+              AND coalesce((external_candidate -> 'signals' ->> 'provider')::boolean, false)
+              AND coalesce((external_candidate -> 'signals' ->> 'date')::boolean, false)
+              AND coalesce((external_candidate -> 'signals' ->> 'total')::boolean, false)
+              AND coalesce((external_candidate -> 'signals' ->> 'recipient')::boolean, false)
+            )
        ))
        AND (((remote.document_type = 'TD01' AND EXISTS (
          SELECT 1 FROM orders

@@ -53,6 +53,77 @@ function samePresentationText(value: unknown, expected: string) {
   );
 }
 
+function ebayPhoneNumber(snapshot: Record<string, unknown>) {
+  const source = record(snapshot.sourceSnapshot);
+  const instructions = Array.isArray(source?.fulfillmentStartInstructions)
+    ? source.fulfillmentStartInstructions
+    : [];
+  const instruction = record(instructions[0]);
+  const shippingStep = record(instruction?.shippingStep);
+  const shipTo = record(shippingStep?.shipTo);
+  const primaryPhone = record(shipTo?.primaryPhone);
+  return typeof primaryPhone?.phoneNumber === "string" && primaryPhone.phoneNumber.trim()
+    ? primaryPhone.phoneNumber
+    : null;
+}
+
+function withoutPhoneMapperEvidence(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutPhoneMapperEvidence);
+  const source = record(value);
+  if (!source) return value;
+  return Object.fromEntries(
+    Object.entries(source).flatMap(([key, item]) =>
+      key === "phone" ||
+      key === "reviewFingerprint" ||
+      key === "sourceConflictRequired" ||
+      item === undefined
+        ? []
+        : [[key, withoutPhoneMapperEvidence(item)]],
+    ),
+  );
+}
+
+function brokenEbayPhone(value: unknown) {
+  return value === "[object Object]" || value === undefined;
+}
+
+/** Riconosce soltanto la correzione del vecchio mapper dell'oggetto `primaryPhone`. */
+export function isEbayPhoneMapperOnlyChange(
+  previous: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  if (previous.provider !== "EBAY" || current.provider !== "EBAY") return false;
+  if (!isDeepStrictEqual(previous.sourceSnapshot, current.sourceSnapshot)) return false;
+  const phoneNumber = ebayPhoneNumber(current);
+  const previousCustomer = record(previous.customer);
+  const currentCustomer = record(current.customer);
+  const previousSnapshot = record(previous.customerSnapshot);
+  const currentSnapshot = record(current.customerSnapshot);
+  const previousCanonical = record(previousSnapshot?.canonicalProfile);
+  const currentCanonical = record(currentSnapshot?.canonicalProfile);
+  if (
+    !phoneNumber ||
+    !previousCustomer ||
+    !currentCustomer ||
+    !previousSnapshot ||
+    !currentSnapshot ||
+    !previousCanonical ||
+    !currentCanonical ||
+    !brokenEbayPhone(previousCustomer.phone) ||
+    !brokenEbayPhone(previousSnapshot.phone) ||
+    !["[object object]", "", undefined].includes(previousCanonical.phone as string | undefined) ||
+    !samePresentationText(currentCustomer.phone, phoneNumber) ||
+    !samePresentationText(currentSnapshot.phone, phoneNumber) ||
+    !samePresentationText(currentCanonical.phone, phoneNumber)
+  ) {
+    return false;
+  }
+  return isDeepStrictEqual(
+    withoutPhoneMapperEvidence(previous),
+    withoutPhoneMapperEvidence(current),
+  );
+}
+
 /**
  * Riconosce esclusivamente la nuova interpretazione del medesimo destinatario eBay:
  * la parte che segue `c/o` lascia il nome e diventa la seconda riga dell'indirizzo.

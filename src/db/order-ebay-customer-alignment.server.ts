@@ -15,7 +15,7 @@ export async function reconcileEbayCustomerAlignment(
     requestId: string;
     revisionId?: string;
     clearExistingConflict: boolean;
-    alignment: "EMAIL_ONLY" | "EMAIL_AND_MAPPER" | "CARE_OF_ADDRESS";
+    alignment: "EMAIL_ONLY" | "EMAIL_AND_MAPPER" | "CARE_OF_ADDRESS" | "PHONE_MAPPER";
   },
 ) {
   const billingCase = await client.query<{
@@ -31,27 +31,41 @@ export async function reconcileEbayCustomerAlignment(
   );
   const current = billingCase.rows[0];
   if (!current || !["DRAFT", "READY", "NEEDS_REVIEW"].includes(current.status)) return false;
-  if (current.order_count !== 1) return false;
+  const phoneMapper = input.alignment === "PHONE_MAPPER";
+  if (current.order_count !== 1 && !phoneMapper) return false;
 
+  let customerSnapshotUpdated = false;
   if (!current.manually_corrected) {
-    await client.query(
+    const updated = await client.query(
       `UPDATE billing_cases
        SET customer_id = $2, customer_snapshot_json = $3,
            revision = revision + 1, updated_at = now()
-       WHERE id = $1`,
-      [input.caseId, input.customerId, JSON.stringify(input.customerSnapshot)],
+       WHERE id = $1
+         AND ($4::boolean = false OR NOT EXISTS (
+           SELECT 1 FROM orders
+           WHERE orders.billing_case_id = billing_cases.id
+             AND orders.normalized_snapshot_json -> 'customerSnapshot' IS DISTINCT FROM $3::jsonb
+         ))`,
+      [
+        input.caseId,
+        input.customerId,
+        JSON.stringify(input.customerSnapshot),
+        phoneMapper && current.order_count !== 1,
+      ],
     );
+    customerSnapshotUpdated = Boolean(updated.rowCount);
     await client.query("UPDATE orders SET customer_id = $2 WHERE id = $1", [
       input.orderId,
       input.customerId,
     ]);
-    await client.query(
-      `UPDATE documents
+    if (customerSnapshotUpdated)
+      await client.query(
+        `UPDATE documents
        SET recipient_snapshot_json = $2, draft_version = draft_version + 1,
            projection_sha256 = repeat('0', 64), updated_at = now()
        WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'`,
-      [input.caseId, JSON.stringify(recipientFromCustomerSnapshot(input.customerSnapshot))],
-    );
+        [input.caseId, JSON.stringify(recipientFromCustomerSnapshot(input.customerSnapshot))],
+      );
   }
   if (input.clearExistingConflict) {
     await client.query(
@@ -89,10 +103,12 @@ export async function reconcileEbayCustomerAlignment(
       ? "Riferimento c/o eBay spostato automaticamente dal nome alla seconda riga dell’indirizzo"
       : input.alignment === "EMAIL_ONLY"
         ? "Variazione limitata all’e-mail eBay, senza modifiche fiscali o d’ordine"
-        : "Variazione eBay riallineata con profilo invariato e mapper anagrafico verificato",
+        : phoneMapper
+          ? "Telefono eBay riletto dal campo phoneNumber del payload provider invariato"
+          : "Variazione eBay riallineata con profilo invariato e mapper anagrafico verificato",
     requestId: input.requestId,
   });
   await recomputeBillingCaseStatus(client, input.caseId);
-  if (!current.manually_corrected) await refreshInvoiceDraftProjection(client, input.caseId);
+  if (customerSnapshotUpdated) await refreshInvoiceDraftProjection(client, input.caseId);
   return true;
 }

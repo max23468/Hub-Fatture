@@ -14,6 +14,7 @@ test("la seconda verifica Aruba conserva il Paese del privato estero", () => {
     recipient_name: "Stefan Schirmer",
     recipient_tax_identifiers: [],
     recipient_country_code: "DE",
+    recipient_city: "Hamburg",
     recipient_address: "Papenhuder Str. 26 22087 Hamburg DE",
     billing_case_id: "7",
   });
@@ -26,6 +27,7 @@ test("la seconda verifica Aruba conserva il Paese del privato estero", () => {
     recipientName: "Stefan Schirmer",
     recipientTaxIdentifiers: [],
     recipientCountryCode: "DE",
+    recipientCity: "Hamburg",
     recipientAddress: "Papenhuder Str. 26 22087 Hamburg DE",
     billingCaseId: "7",
   });
@@ -40,6 +42,7 @@ test("la seconda verifica Aruba conserva il Paese del privato estero", () => {
         recipient_name: "Stefan Schirmer",
         recipient_tax_identifiers: [],
         recipient_country_code: "DE",
+        recipient_city: "Hamburg",
         recipient_address: "Papenhuder Str. 26 22087 Hamburg DE",
         billing_case_id: "7",
       },
@@ -60,6 +63,7 @@ test("la seconda verifica Aruba conserva il Paese del privato estero", () => {
         recipientTaxId: "99999999999",
         recipientTaxIdentifiers: [{ type: "PARTITA_IVA", countryCode: "DE", value: "99999999999" }],
         recipientCountryCode: "DE",
+        recipientCity: "Hamburg",
         recipientAddress: "20095 Speersort 1 Hamburg DE",
         totalAmount: 3_566,
         currency: "EUR",

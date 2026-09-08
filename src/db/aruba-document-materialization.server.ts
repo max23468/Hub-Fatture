@@ -140,6 +140,7 @@ export function officialEvidence(
       value: identifier.value,
     })),
     recipientCountryCode: recipient.address.countryCode,
+    recipientCity: recipient.address.city,
     recipientAddress: [
       recipient.address.line1,
       recipient.address.postalCode,

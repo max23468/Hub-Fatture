@@ -594,7 +594,7 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
       lastName: privateItalianName?.lastName,
       companyName,
       email: text(shipTo.email),
-      phone: text(shipTo.primaryPhone?.toString()),
+      phone: text(record(shipTo.primaryPhone).phoneNumber),
       billingAddress: {
         line1: text(address.addressLine1),
         line2: recipient.addressLine2,
@@ -702,11 +702,21 @@ export function ebayTradingModificationWindows(start: string, end: string) {
   return windows;
 }
 
+function ebayTradingTransactionCompleted(transaction: Record<string, unknown>) {
+  const status = record(transaction.Status);
+  return (
+    xmlText(status.CheckoutStatus) === "CheckoutComplete" &&
+    xmlText(status.CompleteStatus) === "Complete" &&
+    xmlText(status.eBayPaymentStatus) === "NoPaymentFailure"
+  );
+}
+
 export function ebayTradingLineId(payload: unknown) {
   const transaction = record(payload);
   const lineId = xmlText(transaction.OrderLineItemID);
-  if (!lineId) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
-  return lineId;
+  if (lineId) return lineId;
+  if (ebayTradingTransactionCompleted(transaction)) return null;
+  throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
 }
 
 export function ebayTradingSuccessorOrderId(payload: unknown, requestedOrderId: string) {
@@ -870,6 +880,10 @@ async function fetchEbayTradingPendingOrders(
     }
   }
 
+  if (!provisionalIdentityIds.size) {
+    return { orders: [...observed.values()], successorIdentityIds };
+  }
+
   const missingLineIds = new Set<string>();
   for (const modificationWindow of ebayTradingModificationWindows(start, end)) {
     for (let page = 1; page <= EBAY_TRADING_MAX_PAGES; page += 1) {
@@ -883,7 +897,7 @@ async function fetchEbayTradingPendingOrders(
       });
       for (const transaction of tradingTransactions(response)) {
         const lineId = ebayTradingLineId(transaction);
-        if (provisionalIdentityIds.has(lineId) && !activeLineIds.has(lineId)) {
+        if (lineId && provisionalIdentityIds.has(lineId) && !activeLineIds.has(lineId)) {
           missingLineIds.add(lineId);
         }
       }

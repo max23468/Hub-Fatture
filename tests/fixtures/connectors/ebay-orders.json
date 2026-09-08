@@ -47,6 +47,7 @@
           "shipTo": {
             "fullName": "Cliente eBay Sintetico",
             "email": "ebay@example.invalid",
+            "primaryPhone": { "phoneNumber": "+39 011 0000000" },
             "contactAddress": {
               "addressLine1": "Via eBay 1",
               "city": "Torino",
