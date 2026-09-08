@@ -17,6 +17,7 @@ import { jobLeaseCurrent } from "../db/connector-jobs.server.ts";
 import { processEbayDeletionRecord } from "../db/connector-webhooks.server.ts";
 import type { ClaimedJob, ConnectorActor } from "../db/connector-types.server.ts";
 import { importOrders } from "../db/order-import.server.ts";
+import { loadEbayProvisionalIdentityIds } from "../db/order-source-identity.server.ts";
 import { AppError } from "../errors.ts";
 import { splitTwoPartNameUsingFiscalCode } from "../italian-fiscal-code.ts";
 import { splitEbayCareOfRecipient } from "../ebay-recipient.ts";
@@ -701,18 +702,8 @@ export function ebayTradingModificationWindows(start: string, end: string) {
   return windows;
 }
 
-function tradingTransactionPending(transaction: Record<string, unknown>) {
-  const status = record(transaction.Status);
-  return !(
-    xmlText(status.CheckoutStatus) === "CheckoutComplete" &&
-    xmlText(status.CompleteStatus) === "Complete" &&
-    xmlText(status.eBayPaymentStatus) === "NoPaymentFailure"
-  );
-}
-
-export function ebayTradingPendingLineId(payload: unknown) {
+export function ebayTradingLineId(payload: unknown) {
   const transaction = record(payload);
-  if (!tradingTransactionPending(transaction)) return null;
   const lineId = xmlText(transaction.OrderLineItemID);
   if (!lineId) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   return lineId;
@@ -850,6 +841,7 @@ async function fetchEbayTradingPendingOrders(
   environment: "sandbox" | "production",
   token: string,
   accountReference: string,
+  provisionalIdentityIds: ReadonlySet<string>,
   start: string,
   end: string,
 ) {
@@ -890,8 +882,10 @@ async function fetchEbayTradingPendingOrders(
         Pagination: { EntriesPerPage: String(EBAY_TRADING_PAGE_SIZE), PageNumber: String(page) },
       });
       for (const transaction of tradingTransactions(response)) {
-        const lineId = ebayTradingPendingLineId(transaction);
-        if (lineId && !activeLineIds.has(lineId)) missingLineIds.add(lineId);
+        const lineId = ebayTradingLineId(transaction);
+        if (provisionalIdentityIds.has(lineId) && !activeLineIds.has(lineId)) {
+          missingLineIds.add(lineId);
+        }
       }
       if (xmlText(response.HasMoreTransactions) !== "true") break;
       if (page === EBAY_TRADING_MAX_PAGES) {
@@ -1061,11 +1055,15 @@ async function fetchOrdersBatch(
   const token = await accessToken(environment, connection.credentials.refreshToken);
   const end = continuation?.end ?? new Date().toISOString();
   const fulfillmentOrders = new Map<string, OrderInput>();
+  const provisionalIdentityIds = includeTrading
+    ? await loadEbayProvisionalIdentityIds(connection.accountReference)
+    : new Set<string>();
   const trading = includeTrading
     ? await fetchEbayTradingPendingOrders(
         environment,
         token,
         connection.accountReference,
+        provisionalIdentityIds,
         start,
         end,
       )

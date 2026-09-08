@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.22
+
+- La riconciliazione eBay rilegge anche le transazioni già completate, così il replay collega gli acquisti provvisori al loro ordine definitivo e rimuove i pagamenti in attesa già saldati.
+
 ## 1.3.21
 
 - La sincronizzazione eBay collega gli acquisti provvisori all’ordine combinato indicato da `GetOrders`, anche quando eBay cambia gli identificativi delle righe al pagamento. Il consolidamento richiede che tutte le righe di ogni provvisorio appartengano allo stesso ordine definitivo.

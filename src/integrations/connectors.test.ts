@@ -14,7 +14,7 @@ import {
   ebayTradingModificationWindows,
   ebayTradingOrderIsImportable,
   ebayTradingOrderIsActive,
-  ebayTradingPendingLineId,
+  ebayTradingLineId,
   ebayTradingSuccessorOrderId,
   ebayTradingHeaders,
   mapEbayOrder,
@@ -119,7 +119,7 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
   assert.equal(ebayTradingOrderIsImportable({ OrderStatus: "Completed" }), false);
 });
 
-test("eBay Trading non ignora una transazione pendente priva di identità stabile", () => {
+test("eBay Trading rilegge l’identità anche dopo il completamento della transazione", () => {
   const pendingStatus = {
     Status: {
       CheckoutStatus: "CheckoutIncomplete",
@@ -128,11 +128,22 @@ test("eBay Trading non ignora una transazione pendente priva di identità stabil
     },
   };
   assert.equal(
-    ebayTradingPendingLineId({ ...pendingStatus, OrderLineItemID: "item-1-transaction-1" }),
+    ebayTradingLineId({ ...pendingStatus, OrderLineItemID: "item-1-transaction-1" }),
+    "item-1-transaction-1",
+  );
+  assert.equal(
+    ebayTradingLineId({
+      Status: {
+        CheckoutStatus: "CheckoutComplete",
+        CompleteStatus: "Complete",
+        eBayPaymentStatus: "NoPaymentFailure",
+      },
+      OrderLineItemID: "item-1-transaction-1",
+    }),
     "item-1-transaction-1",
   );
   assert.throws(
-    () => ebayTradingPendingLineId(pendingStatus),
+    () => ebayTradingLineId(pendingStatus),
     (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
   );
 });

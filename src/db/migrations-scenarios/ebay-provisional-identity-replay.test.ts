@@ -1,7 +1,7 @@
 import {
   assert,
   cp,
-  EBAY_COMBINED_ORDER_REPLAY,
+  EBAY_COMPLETED_TRANSACTION_REPLAY,
   migrationsFrom,
   mkdtemp,
   os,
@@ -14,12 +14,12 @@ import {
   withClient,
 } from "./support.ts";
 
-test("l'upgrade rilegge gli ordini eBay provvisori dopo la correzione degli ordini combinati", async () => {
+test("l'upgrade rilegge gli ordini eBay provvisori dopo aver incluso le transazioni completate", async () => {
   const database = await temporaryDatabase("ebay_provisional_identity_replay");
   const beforeReplay = await mkdtemp(path.join(os.tmpdir(), "hub-fatture-before-ebay-replay-"));
   try {
     await cp("migrations", beforeReplay, { recursive: true });
-    await removeMigrationsFrom(beforeReplay, EBAY_COMBINED_ORDER_REPLAY);
+    await removeMigrationsFrom(beforeReplay, EBAY_COMPLETED_TRANSACTION_REPLAY);
     await runMigrations({ connectionString: database.connectionString, directory: beforeReplay });
     await withClient(database.connectionString, async (client) => {
       await client.query(`
@@ -58,7 +58,7 @@ test("l'upgrade rilegge gli ordini eBay provvisori dopo la correzione degli ordi
 
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString }),
-      migrationsFrom(EBAY_COMBINED_ORDER_REPLAY),
+      migrationsFrom(EBAY_COMPLETED_TRANSACTION_REPLAY),
     );
     await withClient(database.connectionString, async (client) => {
       const cursor = await client.query(
