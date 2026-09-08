@@ -8,7 +8,12 @@ import { temporaryDatabase, withClient } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 import { importOrders } from "./order-import.server.ts";
 import { AppError } from "../errors.ts";
-import { importEbayHistory, syncEbayOrders } from "../integrations/ebay.server.ts";
+import {
+  EBAY_SCOPE,
+  importEbayHistory,
+  installEbayRefreshToken,
+  syncEbayOrders,
+} from "../integrations/ebay.server.ts";
 import { mapShopifyOrder, processShopifyWebhook } from "../integrations/shopify.server.ts";
 
 test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti", async () => {
@@ -20,6 +25,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
   process.env.EBAY_ENVIRONMENT = "sandbox";
   process.env.EBAY_CLIENT_ID = "ebay-client-sintetico";
   process.env.EBAY_CLIENT_SECRET = "ebay-secret-sintetico";
+  process.env.EBAY_ACCOUNT_REFERENCE = "botCF";
   process.env.CREDENTIALS_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString("base64url");
   process.env.SHOPIFY_API_KEY = "shopify-key-sintetica";
   process.env.SHOPIFY_API_SECRET = "shopify-secret-sintetico";
@@ -33,6 +39,63 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ...(await import("./connector-webhooks.server.ts")),
     };
     const systemActor = { type: "SYSTEM" as const, requestId: "connector-test" };
+    const originalInstallFetch = globalThis.fetch;
+    let refreshBody = "";
+    globalThis.fetch = async (input, init) => {
+      if (String(input).includes("/identity/v1/oauth2/token")) {
+        refreshBody = String(init?.body);
+        return new Response(
+          JSON.stringify({
+            access_token: "accesso-installazione-sintetico",
+            expires_in: 3600,
+            scope: EBAY_SCOPE,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (String(input).includes("/commerce/identity/v1/user/")) {
+        return new Response(JSON.stringify({ username: "botCF" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Richiesta inattesa: ${input}`);
+    };
+    try {
+      await installEbayRefreshToken("refresh-installazione-sintetico", systemActor);
+    } finally {
+      globalThis.fetch = originalInstallFetch;
+    }
+    assert.equal(new URLSearchParams(refreshBody).get("scope"), EBAY_SCOPE);
+    assert.deepEqual((await connectors.loadConnection("EBAY")).credentials, {
+      refreshToken: "refresh-installazione-sintetico",
+    });
+
+    globalThis.fetch = async (input) => {
+      if (String(input).includes("/identity/v1/oauth2/token")) {
+        return new Response(
+          JSON.stringify({
+            access_token: "accesso-scope-incompleto",
+            expires_in: 3600,
+            scope: "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw new Error(`Richiesta inattesa: ${input}`);
+    };
+    try {
+      await assert.rejects(
+        installEbayRefreshToken("refresh-scope-incompleto", systemActor),
+        (error) => error instanceof AppError && error.code === "AUTH_PROVIDER_EXPIRED",
+      );
+    } finally {
+      globalThis.fetch = originalInstallFetch;
+    }
+    assert.deepEqual((await connectors.loadConnection("EBAY")).credentials, {
+      refreshToken: "refresh-installazione-sintetico",
+    });
+    await getPool().query("DELETE FROM connections WHERE provider = 'EBAY'");
     await connectors.saveConnection(
       {
         provider: "SHOPIFY",
@@ -1343,7 +1406,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     assert.equal(
       providerAudit.rows.filter((event) => event.action === "PROVIDER_CONNECTED").length,
-      7,
+      8,
     );
     assert.equal(
       providerAudit.rows.at(-1)?.request_id,

@@ -1239,7 +1239,8 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       (
         await getPool().query(
           `SELECT authority_mode, continued_from_run_id FROM aruba_sync_runs
-           WHERE status = 'COMPLETED' ORDER BY completed_at DESC LIMIT 1`,
+           WHERE id = $1`,
+          [resumedResult.runId],
         )
       ).rows[0],
       { authority_mode: "CANONICAL", continued_from_run_id: null },

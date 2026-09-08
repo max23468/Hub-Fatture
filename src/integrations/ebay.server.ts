@@ -376,6 +376,44 @@ async function accessToken(environment: "sandbox" | "production", refreshToken: 
   return token;
 }
 
+export async function installEbayRefreshToken(refreshToken: string, actor: ConnectorActor) {
+  const config = getConfig();
+  if (!refreshToken.trim() || !config.EBAY_CLIENT_ID || !config.EBAY_CLIENT_SECRET) {
+    throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
+  }
+  const environment = config.EBAY_ENVIRONMENT;
+  const result = await providerJson(`${environmentBase(environment)}/identity/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${config.EBAY_CLIENT_ID}:${config.EBAY_CLIENT_SECRET}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken.trim(),
+      scope: EBAY_SCOPE,
+    }),
+  });
+  const token = text(result.access_token);
+  const grantedScopes = new Set(text(result.scope)?.split(/\s+/).filter(Boolean) ?? []);
+  if (!token || EBAY_SCOPE.split(" ").some((scope) => !grantedScopes.has(scope))) {
+    throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  }
+  const profile = await providerJson(`${identityBase(environment)}/commerce/identity/v1/user/`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  const accountReference = ebayAccountReference(profile, config.EBAY_ACCOUNT_REFERENCE);
+  await saveConnection(
+    {
+      provider: "EBAY",
+      environment: environment === "sandbox" ? "SANDBOX" : "PRODUCTION",
+      accountReference,
+      credentials: { refreshToken: refreshToken.trim() },
+    },
+    actor,
+  );
+}
+
 async function applicationToken() {
   if (applicationTokenCache && applicationTokenCache.expiresAt > Date.now()) {
     return applicationTokenCache.token;
