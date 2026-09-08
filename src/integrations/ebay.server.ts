@@ -395,13 +395,32 @@ export async function installEbayRefreshToken(refreshToken: string, actor: Conne
     }),
   });
   const token = text(result.access_token);
-  const grantedScopes = new Set(text(result.scope)?.split(/\s+/).filter(Boolean) ?? []);
-  if (!token || EBAY_SCOPE.split(" ").some((scope) => !grantedScopes.has(scope))) {
+  if (!token) {
     throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  }
+  const returnedScope = text(result.scope);
+  if (returnedScope) {
+    const grantedScopes = new Set(returnedScope.split(/\s+/).filter(Boolean));
+    if (EBAY_SCOPE.split(" ").some((scope) => !grantedScopes.has(scope))) {
+      throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+    }
   }
   const profile = await providerJson(`${identityBase(environment)}/commerce/identity/v1/user/`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
   });
+  if (!returnedScope) {
+    const end = new Date().toISOString();
+    const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await providerJson(
+      `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order?${new URLSearchParams(
+        {
+          filter: `lastmodifieddate:[${start}..${end}]`,
+          limit: "1",
+        },
+      )}`,
+      { headers: ebayFulfillmentHeaders(token, "EBAY_IT") },
+    );
+  }
   const accountReference = ebayAccountReference(profile, config.EBAY_ACCOUNT_REFERENCE);
   await saveConnection(
     {
