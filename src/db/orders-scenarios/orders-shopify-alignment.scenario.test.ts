@@ -45,6 +45,93 @@ export async function run(context: OrdersTestContext) {
     { status: "READY", trigger_status: "GROUPED", revision_count: 0, alignments: 1 },
   );
 
+  const ebayFulfillment = structuredClone(fulfillment);
+  ebayFulfillment.provider = "EBAY";
+  ebayFulfillment.externalOrderId = "ebay-order-fulfillment-only";
+  ebayFulfillment.externalAccountId = "ebay-account";
+  ebayFulfillment.externalCustomerId = "ebay-customer-fulfillment-only";
+  ebayFulfillment.displayNumber = "E-FULFILLMENT-ONLY";
+  ebayFulfillment.createdAt = "2026-09-07T08:00:00Z";
+  ebayFulfillment.updatedAt = "2026-09-07T08:25:12Z";
+  ebayFulfillment.sourceSnapshot = { orderFulfillmentStatus: "NOT_STARTED" };
+  await orders.importOrders([ebayFulfillment], {
+    id: 1,
+    requestId: "ebay-fulfillment-before",
+  });
+  const ebayBefore = (
+    await database
+      .getPool()
+      .query(`SELECT normalized_snapshot_json FROM orders WHERE external_order_id = $1`, [
+        ebayFulfillment.externalOrderId,
+      ])
+  ).rows[0].normalized_snapshot_json;
+  const ebayFulfilled = structuredClone(ebayFulfillment);
+  ebayFulfilled.updatedAt = "2026-09-07T09:25:12Z";
+  ebayFulfilled.fulfillmentStatus = "FULFILLED";
+  ebayFulfilled.sourceSnapshot = { orderFulfillmentStatus: "FULFILLED" };
+  await orders.importOrders([ebayFulfilled], {
+    id: 1,
+    requestId: "ebay-fulfillment-after",
+  });
+  const ebayOrder = (
+    await database.getPool().query(
+      `SELECT id, billing_case_id, normalized_snapshot_json
+       FROM orders WHERE external_order_id = $1`,
+      [ebayFulfillment.externalOrderId],
+    )
+  ).rows[0];
+  await database.getPool().query(
+    `UPDATE orders
+     SET trigger_status = 'NEEDS_REVIEW',
+         normalized_snapshot_json = jsonb_set(
+           normalized_snapshot_json, '{sourceConflictRequired}', 'true'::jsonb)
+     WHERE id = $1`,
+    [ebayOrder.id],
+  );
+  await database
+    .getPool()
+    .query(`UPDATE billing_cases SET status = 'NEEDS_REVIEW' WHERE id = $1`, [
+      ebayOrder.billing_case_id,
+    ]);
+  await database.getPool().query(
+    `INSERT INTO order_source_revisions
+       (order_id, billing_case_id, previous_normalized_snapshot_json,
+        current_normalized_snapshot_json)
+     VALUES ($1, $2, $3, $4)`,
+    [
+      ebayOrder.id,
+      ebayOrder.billing_case_id,
+      JSON.stringify(ebayBefore),
+      JSON.stringify(ebayOrder.normalized_snapshot_json),
+    ],
+  );
+  await orders.importOrders([ebayFulfilled], {
+    id: 1,
+    requestId: "ebay-fulfillment-replay",
+  });
+  assert.deepEqual(
+    (
+      await database.getPool().query(
+        `SELECT billing_cases.status, orders.trigger_status,
+                orders.normalized_snapshot_json ->> 'sourceConflictRequired'
+                  AS source_conflict_required,
+                (SELECT count(*)::integer FROM audit_events
+                 WHERE entity_type = 'ORDER' AND entity_id = orders.id::text
+                   AND action = 'ORDER_SOURCE_REVIEWED'
+                   AND metadata_json ->> 'automaticAlignment' = 'FULFILLMENT_ONLY') AS alignments
+         FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+         WHERE orders.external_order_id = $1`,
+        [ebayFulfillment.externalOrderId],
+      )
+    ).rows[0],
+    {
+      status: "READY",
+      trigger_status: "GROUPED",
+      source_conflict_required: "false",
+      alignments: 2,
+    },
+  );
+
   const prior = structuredClone(fixture[0]);
   prior.externalOrderId = "shop-order-prior-tax";
   prior.externalCustomerId = "gid://shopify/Customer/shared-tax";

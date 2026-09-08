@@ -1,7 +1,7 @@
 import {
   assert,
   cp,
-  EBAY_PROVISIONAL_IDENTITY_REPLAY,
+  EBAY_COMBINED_ORDER_REPLAY,
   migrationsFrom,
   mkdtemp,
   os,
@@ -14,18 +14,20 @@ import {
   withClient,
 } from "./support.ts";
 
-test("l'upgrade rilegge gli ordini eBay provvisori ancora consolidabili", async () => {
+test("l'upgrade rilegge gli ordini eBay provvisori dopo la correzione degli ordini combinati", async () => {
   const database = await temporaryDatabase("ebay_provisional_identity_replay");
   const beforeReplay = await mkdtemp(path.join(os.tmpdir(), "hub-fatture-before-ebay-replay-"));
   try {
     await cp("migrations", beforeReplay, { recursive: true });
-    await removeMigrationsFrom(beforeReplay, EBAY_PROVISIONAL_IDENTITY_REPLAY);
+    await removeMigrationsFrom(beforeReplay, EBAY_COMBINED_ORDER_REPLAY);
     await runMigrations({ connectionString: database.connectionString, directory: beforeReplay });
     await withClient(database.connectionString, async (client) => {
       await client.query(`
         INSERT INTO connections
-          (provider, environment, account_reference, encrypted_credentials, status, last_synced_at)
-        VALUES ('EBAY', 'PRODUCTION', 'seller', 'encrypted', 'CONNECTED', now());
+          (provider, environment, account_reference, encrypted_credentials, status, last_synced_at,
+           last_error_code, last_error_message_sanitized)
+        VALUES ('EBAY', 'PRODUCTION', 'seller', 'encrypted', 'ERROR', now(),
+                'PROVIDER_RESPONSE_INVALID', 'PROVIDER_RESPONSE_INVALID');
         INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
         VALUES ('EBAY', 'history_import', 'complete', now() - interval '7 days'),
                ('EBAY', 'orders', 'recent', now() - interval '10 minutes');
@@ -56,7 +58,7 @@ test("l'upgrade rilegge gli ordini eBay provvisori ancora consolidabili", async 
 
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString }),
-      migrationsFrom(EBAY_PROVISIONAL_IDENTITY_REPLAY),
+      migrationsFrom(EBAY_COMBINED_ORDER_REPLAY),
     );
     await withClient(database.connectionString, async (client) => {
       const cursor = await client.query(
@@ -67,10 +69,19 @@ test("l'upgrade rilegge gli ordini eBay provvisori ancora consolidabili", async 
          FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'orders'`,
       );
       assert.deepEqual(cursor.rows[0], { cursor: null, expected: true });
-      assert.equal(
-        (await client.query("SELECT last_synced_at FROM connections WHERE provider = 'EBAY'"))
-          .rows[0].last_synced_at,
-        null,
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT status, last_synced_at, last_error_code, last_error_message_sanitized
+             FROM connections WHERE provider = 'EBAY'`,
+          )
+        ).rows[0],
+        {
+          status: "CONNECTED",
+          last_synced_at: null,
+          last_error_code: null,
+          last_error_message_sanitized: null,
+        },
       );
     });
   } finally {

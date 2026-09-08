@@ -701,7 +701,7 @@ async function importOne(
     providerAlignment.refundMapper ||
     providerAlignment.careOfAddress ||
     providerAlignment.paymentTimestamp ||
-    providerAlignment.shopifyFulfillment;
+    providerAlignment.fulfillment;
   const sourceConflict =
     !staleIssuedMembership &&
     (becameHistorical || (fingerprintChanged && !mapperDerivedCorrectionApplied));

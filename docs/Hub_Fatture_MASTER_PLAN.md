@@ -611,7 +611,7 @@ HF può salvare e normalizzare una VAT UE come dato anagrafico e chiave di match
 9. Se annullato prima del trigger, conserva l'ordine come `CANCELLED_NO_DOCUMENT`.
 10. Se idoneo, cerca o crea il raggruppamento giornaliero compatibile.
 
-La piattaforma resta fonte del dato originario. Una risincronizzazione non deve sovrascrivere modifiche manuali della bozza: registra la differenza e richiede revisione quando è rilevante.
+La piattaforma resta fonte del dato originario. Una risincronizzazione non deve sovrascrivere modifiche manuali della bozza: registra la differenza e richiede revisione quando è rilevante. L’avanzamento dello stato di evasione è invece operativo: per Shopify ed eBay aggiorna automaticamente la preparazione quando procede in avanti e ogni altro dato normalizzato coincide; regressioni o variazioni economiche e anagrafiche restano da verificare.
 
 Per i dati anagrafici mantenere tre forme distinte: snapshot sorgente immutabile, profilo canonico per matching e anti-duplicazione, forma di presentazione per interfaccia e documenti. La forma di presentazione uniforma Unicode e spazi, e-mail, codici Paese/provincia e identificativi; applica maiuscole leggibili a nomi personali, città e indirizzi italiani riconoscibili soltanto quando il risultato è ad alta confidenza. Ragioni sociali, parole già in casing misto e parti ambigue restano invariate. La correzione manuale prevale e le preparazioni già create non vengono riscritte.
 
@@ -912,14 +912,14 @@ Non fissare i nomi dei topic senza verifica sulla versione API corrente.
 - Conservazione del cursore e sovrapposizione temporale per non perdere aggiornamenti.
 - La Fulfillment API resta la sorgente canonica dopo il completamento del checkout, ma non espone tutti gli acquisti con pagamento anticipato ancora pendente.
 - Ogni sincronizzazione ordinaria interroga anche la Trading API `GetOrders` con `OrderStatus=Active` e importa questi acquisti come osservazioni provvisorie `PENDING`, `UNFULFILLED` e da non fatturare.
-- La Trading API `GetSellerTransactions`, limitata alla stessa finestra incrementale con sovrapposizione e suddivisa in intervalli non superiori ai 30 giorni ammessi dal provider, riconcilia le righe modificate: se segnala una riga con checkout incompleto assente dall'inventario `Active`, una rilettura `GetOrders` mirata tramite `OrderLineItemID` deve recuperare l'ordine; in caso contrario la sincronizzazione fallisce chiusa. Se la rilettura restituisce `Cancelled`, la stessa osservazione provvisoria viene aggiornata come annullata e scompare dai pagamenti in attesa.
-- `OrderLineItemID` è l'identità stabile tra la fase Trading e la fase Fulfillment e viene usata anche per eliminare dal batch un'osservazione Trading già coperta dalla risposta canonica. Il passaggio all'ID ordine definitivo riunisce atomicamente uno o più ordini provvisori soltanto quando tutte le loro righe appartengono alla risposta canonica e nessuno è già fatturabile, rimborsato, revisionato o collegato a documenti e riconciliazioni. Corrispondenze parziali o identità legate a ordini non provvisori restano fail-closed.
+- La Trading API `GetSellerTransactions`, limitata alla stessa finestra incrementale con sovrapposizione e suddivisa in intervalli non superiori ai 30 giorni ammessi dal provider, riconcilia le righe modificate: se segnala una riga con checkout incompleto assente dall'inventario `Active`, una rilettura `GetOrders` mirata tramite il suo `OrderLineItemID` deve recuperare un solo ordine. Se l'ordine è `Cancelled`, la stessa osservazione provvisoria viene aggiornata come annullata e scompare dai pagamenti in attesa. Se è `Completed`, l'`OrderID` restituito identifica autorevolmente l'ordine Fulfillment successore, anche quando eBay ha cambiato gli identificativi delle righe; risposte assenti, multiple o prive del dettaglio Fulfillment falliscono chiuse.
+- Il passaggio all'ordine Fulfillment definitivo riunisce atomicamente uno o più ordini provvisori usando le identità Trading associate dal provider al medesimo `OrderID`. Tutte le identità persistite di ciascun provvisorio devono appartenere allo stesso successore e l'ordine provvisorio deve essere ancora privo di fatture, rimborsi, revisioni o riconciliazioni. Corrispondenze parziali, identità distribuite fra più successori o identità legate a ordini non provvisori restano fail-closed.
 - Le API Trading vengono chiamate con lo stesso token utente già limitato agli scope REST in sola lettura: il probe Production ha verificato `GetOrders` senza ampliare i consensi. Se eBay cambiasse questo contratto, la sincronizzazione deve fallire chiusa e richiedere una nuova connessione esplicita, mai aggiungere permessi silenziosamente.
 
 ### 9.2 Dati da importare
 
 - ID ordine e riferimento leggibile.
-- Identità stabile `OrderLineItemID` e provenienza Trading o Fulfillment.
+- Identità di riga del rispettivo percorso e legame autorevole fra ordine Trading provvisorio e `OrderID` Fulfillment successore.
 - Date e stato.
 - Buyer e indirizzi.
 - Totali EUR.

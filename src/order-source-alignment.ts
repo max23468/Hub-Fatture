@@ -433,7 +433,7 @@ export function isEbayRefundMapperOnlyChange(
   );
 }
 
-function withoutShopifyFulfillmentEvidence(snapshot: Record<string, unknown>): unknown {
+function withoutFulfillmentEvidence(snapshot: Record<string, unknown>): unknown {
   const ignored = new Set([
     "fulfillmentStatus",
     "reviewFingerprint",
@@ -449,22 +449,24 @@ function withoutShopifyFulfillmentEvidence(snapshot: Record<string, unknown>): u
 }
 
 /**
- * L'evasione Shopify è un avanzamento operativo e non fiscale. Il riallineamento è
+ * L'evasione dell'ordine è un avanzamento operativo e non fiscale. Il riallineamento è
  * automatico solo in avanti e solo quando ogni altro dato normalizzato coincide.
  */
-export function isShopifyFulfillmentOnlyChange(
+export function isFulfillmentOnlyChange(
   previous: Record<string, unknown>,
   current: Record<string, unknown>,
 ): boolean {
-  if (previous.provider !== "SHOPIFY" || current.provider !== "SHOPIFY") return false;
+  if (
+    previous.provider !== current.provider ||
+    !["SHOPIFY", "EBAY"].includes(String(previous.provider))
+  ) {
+    return false;
+  }
   const rank: Record<string, number> = { UNFULFILLED: 0, PARTIAL: 1, FULFILLED: 2 };
   const previousRank = rank[String(previous.fulfillmentStatus)] ?? -1;
   const currentRank = rank[String(current.fulfillmentStatus)] ?? -1;
   return (
     currentRank > previousRank &&
-    isDeepStrictEqual(
-      withoutShopifyFulfillmentEvidence(previous),
-      withoutShopifyFulfillmentEvidence(current),
-    )
+    isDeepStrictEqual(withoutFulfillmentEvidence(previous), withoutFulfillmentEvidence(current))
   );
 }

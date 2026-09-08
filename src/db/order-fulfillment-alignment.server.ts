@@ -1,10 +1,10 @@
 import type pg from "pg";
 
-import { isShopifyFulfillmentOnlyChange } from "../order-source-alignment.ts";
+import { isFulfillmentOnlyChange } from "../order-source-alignment.ts";
 import { writeAudit } from "./audit.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 
-interface PreviousShopifyOrder {
+interface PreviousOrder {
   billing_case_id: string | null;
   trigger_status: string;
   latest_revision_id: string | null;
@@ -13,10 +13,11 @@ interface PreviousShopifyOrder {
   last_observed_snapshot_json: Record<string, unknown>;
 }
 
-export async function reconcileShopifyFulfillmentChange(
+export async function reconcileFulfillmentChange(
   client: pg.PoolClient,
   input: {
-    oldOrder: PreviousShopifyOrder | undefined;
+    provider: "SHOPIFY" | "EBAY";
+    oldOrder: PreviousOrder | undefined;
     orderId: string;
     normalizedSnapshot: Record<string, unknown>;
     fingerprint: string;
@@ -30,7 +31,7 @@ export async function reconcileShopifyFulfillmentChange(
     !input.documentIssued &&
     input.fingerprintChanged &&
     oldOrder?.billing_case_id &&
-    isShopifyFulfillmentOnlyChange(oldOrder.last_observed_snapshot_json, input.normalizedSnapshot),
+    isFulfillmentOnlyChange(oldOrder.last_observed_snapshot_json, input.normalizedSnapshot),
   );
   const existingConflict = Boolean(
     !input.documentIssued &&
@@ -40,23 +41,19 @@ export async function reconcileShopifyFulfillmentChange(
     oldOrder.latest_revision_previous_snapshot_json &&
     oldOrder.latest_revision_current_snapshot_json &&
     oldOrder.latest_revision_current_snapshot_json.reviewFingerprint === input.fingerprint &&
-    isShopifyFulfillmentOnlyChange(
+    isFulfillmentOnlyChange(
       oldOrder.latest_revision_previous_snapshot_json,
       oldOrder.latest_revision_current_snapshot_json,
     ),
   );
   if ((!newChange && !existingConflict) || !oldOrder?.billing_case_id) return false;
 
-  const billingCase = await client.query<{ status: string; order_count: number }>(
-    `SELECT status,
-            (SELECT count(*)::integer FROM orders WHERE billing_case_id = billing_cases.id)
-              AS order_count
-     FROM billing_cases WHERE id = $1 FOR UPDATE`,
+  const billingCase = await client.query<{ status: string }>(
+    `SELECT status FROM billing_cases WHERE id = $1 FOR UPDATE`,
     [oldOrder.billing_case_id],
   );
   const current = billingCase.rows[0];
   if (!current || !["DRAFT", "READY", "NEEDS_REVIEW"].includes(current.status)) return false;
-  if (current.order_count !== 1) return false;
   if (existingConflict) {
     await client.query(
       `UPDATE orders
@@ -77,7 +74,7 @@ export async function reconcileShopifyFulfillmentChange(
     entityId: input.orderId,
     metadata: {
       billingCaseId: oldOrder.billing_case_id,
-      provider: "SHOPIFY",
+      provider: input.provider,
       automaticAlignment: "FULFILLMENT_ONLY",
       ...(existingConflict && oldOrder.latest_revision_id
         ? { revisionId: oldOrder.latest_revision_id }
@@ -85,7 +82,7 @@ export async function reconcileShopifyFulfillmentChange(
     },
     before: { sourceReview: existingConflict ? "OPEN" : "NOT_REQUIRED" },
     after: { sourceReview: "ALIGNED_AUTOMATICALLY" },
-    reason: "Avanzamento ordinario dell’evasione Shopify senza modifiche economiche o anagrafiche",
+    reason: `Avanzamento ordinario dell’evasione ${input.provider === "SHOPIFY" ? "Shopify" : "eBay"} senza modifiche economiche o anagrafiche`,
     requestId: input.requestId,
   });
   await recomputeBillingCaseStatus(client, oldOrder.billing_case_id);

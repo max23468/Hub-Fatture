@@ -4,13 +4,13 @@ import { isEbayCareOfAddressMapperOnlyChange } from "../order-source-alignment.t
 import { reconcileEbayCustomerAlignment } from "./order-ebay-customer-alignment.server.ts";
 import { reconcileEbayPaymentTimestampChange } from "./order-ebay-payment-alignment.server.ts";
 import { reconcileExistingEbayRefundMapperConflict } from "./order-ebay-refund-alignment.server.ts";
-import { reconcileShopifyFulfillmentChange } from "./order-shopify-fulfillment-alignment.server.ts";
+import { reconcileFulfillmentChange } from "./order-fulfillment-alignment.server.ts";
 
 type EbayInput = Parameters<typeof reconcileExistingEbayRefundMapperConflict>[1];
-type ShopifyInput = Parameters<typeof reconcileShopifyFulfillmentChange>[1];
+type FulfillmentInput = Parameters<typeof reconcileFulfillmentChange>[1];
 type PreviousOrder =
   | (NonNullable<EbayInput["oldOrder"]> &
-      NonNullable<ShopifyInput["oldOrder"]> & {
+      NonNullable<FulfillmentInput["oldOrder"]> & {
         billing_case_customer_snapshot_json: Record<string, unknown> | null;
         billing_case_customer_corrected: boolean;
       })
@@ -55,7 +55,7 @@ export async function reconcileProviderOrderAlignment(
       refundMapper: await reconcileExistingEbayRefundMapperConflict(client, input),
       careOfAddress,
       paymentTimestamp: await reconcileEbayPaymentTimestampChange(client, input),
-      shopifyFulfillment: false,
+      fulfillment: await reconcileFulfillmentChange(client, { ...input, provider: "EBAY" }),
     };
   }
   if (input.provider === "SHOPIFY") {
@@ -63,13 +63,13 @@ export async function reconcileProviderOrderAlignment(
       refundMapper: false,
       careOfAddress: false,
       paymentTimestamp: false,
-      shopifyFulfillment: await reconcileShopifyFulfillmentChange(client, input),
+      fulfillment: await reconcileFulfillmentChange(client, { ...input, provider: "SHOPIFY" }),
     };
   }
   return {
     refundMapper: false,
     careOfAddress: false,
     paymentTimestamp: false,
-    shopifyFulfillment: false,
+    fulfillment: false,
   };
 }
