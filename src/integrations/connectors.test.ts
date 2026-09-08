@@ -9,6 +9,7 @@ import {
   EBAY_TRADING_API_COMPATIBILITY_LEVEL,
   ebayAccountReference,
   ebayFulfillmentHeaders,
+  fetchEbayOrdersByIds,
   ebayListingMarketplaceId,
   ebayNextUrl,
   ebayTradingModificationWindows,
@@ -777,6 +778,35 @@ test("eBay usa l’ordine successore per assorbire le identità Trading cambiate
       ),
     (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
   );
+});
+
+test("eBay recupera ogni ordine successore con la lettura puntuale", async () => {
+  const [payload] = await fixture("ebay-orders.json");
+  const order = structuredClone(payload) as {
+    orderId: string;
+    lineItems: Array<Record<string, unknown>>;
+  };
+  order.lineItems[0]!.listingMarketplaceId = "EBAY_IT";
+  const calls: Array<{ url: string; headers: Headers }> = [];
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      calls.push({ url: String(input), headers: new Headers(init.headers) });
+      return Response.json(order);
+    };
+    const orders = await fetchEbayOrdersByIds("production", "token-test", "botCF", [order.orderId]);
+    assert.equal(orders[0]?.externalOrderId, order.orderId);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(calls.length, 2);
+  assert.equal(
+    calls[0]?.url,
+    `https://api.ebay.com/sell/fulfillment/v1/order/${order.orderId}?fieldGroups=TAX_BREAKDOWN`,
+  );
+  assert.equal(calls[0]?.headers.has("X-EBAY-C-MARKETPLACE-ID"), false);
+  assert.equal(calls[1]?.headers.get("X-EBAY-C-MARKETPLACE-ID"), "EBAY_IT");
 });
 
 test("eBay distingue l'annullamento concluso dalla richiesta in corso", async () => {

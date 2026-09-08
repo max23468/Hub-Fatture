@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.23
+
+- La sincronizzazione eBay recupera ogni ordine definitivo indicato da Trading tramite il suo endpoint puntuale, verifica l’identità restituita e conserva la rilettura con marketplace necessaria ai dati fiscali.
+- L’upgrade ripete il replay degli acquisti eBay provvisori recenti rimasti in attesa dopo una risposta di elenco non filtrata dal provider.
+
 ## 1.3.22
 
 - La riconciliazione eBay rilegge anche le transazioni già completate, così il replay collega gli acquisti provvisori al loro ordine definitivo e rimuove i pagamenti in attesa già saldati.
