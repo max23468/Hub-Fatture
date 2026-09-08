@@ -162,7 +162,7 @@ async function deleteUnissuedCustomerData(
   identifiers: string[],
 ) {
   if (!identifiers.length) return 0;
-  const result = await client.query<{ id: string }>(
+  const result = await client.query<{ billing_case_id: string | null; id: string }>(
     `DELETE FROM orders
      WHERE provider = $1
        AND customer_id IN (
@@ -173,25 +173,49 @@ async function deleteUnissuedCustomerData(
          SELECT id FROM billing_cases
          WHERE status IN ('DRAFT', 'NEEDS_REVIEW', 'READY', 'DO_NOT_TRANSMIT')
        ))
-     RETURNING id`,
+     RETURNING id, billing_case_id`,
     [provider, identifiers],
   );
-  await client.query(
+  const sourceRecords = await client.query<{ customer_id: string }>(
     `DELETE FROM customer_source_records
-     WHERE provider = $1 AND external_customer_id = ANY($2::text[])`,
+     WHERE provider = $1 AND external_customer_id = ANY($2::text[])
+     RETURNING customer_id`,
     [provider, identifiers],
   );
   await client.query(
     `DELETE FROM billing_cases
-     WHERE status IN ('DRAFT', 'NEEDS_REVIEW', 'READY', 'DO_NOT_TRANSMIT')
-       AND NOT EXISTS (SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id)`,
+     WHERE id = ANY($1::bigint[])
+       AND status IN ('DRAFT', 'NEEDS_REVIEW', 'READY', 'DO_NOT_TRANSMIT')
+       AND NOT EXISTS (SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id)
+       AND NOT EXISTS (
+         SELECT 1 FROM order_source_revisions
+         WHERE order_source_revisions.billing_case_id = billing_cases.id
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM aruba_document_matches
+         WHERE aruba_document_matches.billing_case_id = billing_cases.id
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM aruba_preflight_receipts
+         WHERE aruba_preflight_receipts.billing_case_id = billing_cases.id
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM documents
+         WHERE documents.billing_case_id = billing_cases.id
+            OR documents.source_billing_case_id = billing_cases.id
+       )`,
+    [result.rows.flatMap(({ billing_case_id }) => (billing_case_id ? [billing_case_id] : []))],
   );
   await client.query(
-    `DELETE FROM customers WHERE NOT EXISTS (
+    `DELETE FROM customers WHERE id = ANY($1::bigint[])
+     AND NOT EXISTS (
        SELECT 1 FROM orders WHERE orders.customer_id = customers.id
      ) AND NOT EXISTS (
        SELECT 1 FROM customer_source_records WHERE customer_source_records.customer_id = customers.id
+     ) AND NOT EXISTS (
+       SELECT 1 FROM billing_cases WHERE billing_cases.customer_id = customers.id
      )`,
+    [sourceRecords.rows.map(({ customer_id }) => customer_id)],
   );
   return result.rowCount ?? 0;
 }

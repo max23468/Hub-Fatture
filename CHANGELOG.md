@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.28
+
+- Le richieste di cancellazione eBay eliminano soltanto le preparazioni rimaste orfane dagli ordini interessati, così un riferimento storico estraneo non interrompe il relay privacy da SyncBay.
+
 ## 1.3.27
 
 - L’installazione del token eBay accetta la risposta standard del refresh grant priva del campo `scope` solo dopo avere verificato in lettura Identity e Fulfillment; un campo `scope` presente deve ancora contenere tutti i permessi richiesti.
