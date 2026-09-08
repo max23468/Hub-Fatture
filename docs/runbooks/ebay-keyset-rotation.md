@@ -44,11 +44,12 @@ del comando di installazione.
      node build-server/operations/ebay-refresh-token-install.js
    ```
 
-   L’operazione richiede il token solo su standard input, ottiene un access token
-   con gli scope Hub Fatture, verifica che eBay li restituisca tutti, legge
-   l’identità e confronta l’account con `EBAY_ACCOUNT_REFERENCE`. Solo dopo salva
-   il refresh token cifrato e registra l’audit `PROVIDER_CONNECTED`. Un errore
-   conserva la connessione precedente.
+   L’operazione richiede il token solo su standard input e ottiene un access token
+   con gli scope Hub Fatture. Se eBay restituisce il campo `scope`, l’operazione
+   ne richiede l’insieme completo; se lo omette, prova direttamente Identity e
+   Fulfillment in sola lettura. Confronta quindi l’account con
+   `EBAY_ACCOUNT_REFERENCE`. Solo dopo salva il refresh token cifrato e registra
+   l’audit `PROVIDER_CONNECTED`. Un errore conserva la connessione precedente.
 
 6. Ricreare `app-worker` dopo il messaggio di installazione riuscita.
 7. Eseguire una sincronizzazione in sola lettura e verificare avanzamento del

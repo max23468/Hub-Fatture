@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.27
+
+- L’installazione del token eBay accetta la risposta standard del refresh grant priva del campo `scope` solo dopo avere verificato in lettura Identity e Fulfillment; un campo `scope` presente deve ancora contenere tutti i permessi richiesti.
+
 ## 1.3.26
 
 - Hub Fatture può installare da standard input il refresh token creato dal RuName canonico SyncBay: prima di cifrarlo verifica gli scope di lettura e l’identità del venditore, conservando interfaccia e route esistenti.

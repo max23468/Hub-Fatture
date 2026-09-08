@@ -41,6 +41,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     const systemActor = { type: "SYSTEM" as const, requestId: "connector-test" };
     const originalInstallFetch = globalThis.fetch;
     let refreshBody = "";
+    let fulfillmentScopeProbed = false;
     globalThis.fetch = async (input, init) => {
       if (String(input).includes("/identity/v1/oauth2/token")) {
         refreshBody = String(init?.body);
@@ -48,13 +49,19 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
           JSON.stringify({
             access_token: "accesso-installazione-sintetico",
             expires_in: 3600,
-            scope: EBAY_SCOPE,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
       if (String(input).includes("/commerce/identity/v1/user/")) {
         return new Response(JSON.stringify({ username: "botCF" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (String(input).includes("/sell/fulfillment/v1/order?")) {
+        fulfillmentScopeProbed = true;
+        return new Response(JSON.stringify({ orders: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -67,6 +74,40 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       globalThis.fetch = originalInstallFetch;
     }
     assert.equal(new URLSearchParams(refreshBody).get("scope"), EBAY_SCOPE);
+    assert.equal(fulfillmentScopeProbed, true);
+    assert.deepEqual((await connectors.loadConnection("EBAY")).credentials, {
+      refreshToken: "refresh-installazione-sintetico",
+    });
+
+    globalThis.fetch = async (input) => {
+      if (String(input).includes("/identity/v1/oauth2/token")) {
+        return new Response(
+          JSON.stringify({
+            access_token: "accesso-senza-fulfillment",
+            expires_in: 3600,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (String(input).includes("/commerce/identity/v1/user/")) {
+        return new Response(JSON.stringify({ username: "botCF" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (String(input).includes("/sell/fulfillment/v1/order?")) {
+        return new Response(JSON.stringify({ error: "scope_missing" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Richiesta inattesa: ${input}`);
+    };
+    try {
+      await assert.rejects(installEbayRefreshToken("refresh-senza-fulfillment", systemActor));
+    } finally {
+      globalThis.fetch = originalInstallFetch;
+    }
     assert.deepEqual((await connectors.loadConnection("EBAY")).credentials, {
       refreshToken: "refresh-installazione-sintetico",
     });
