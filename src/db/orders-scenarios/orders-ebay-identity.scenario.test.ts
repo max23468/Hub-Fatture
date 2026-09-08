@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 
+import { loadEbayProvisionalIdentityIds } from "../order-source-identity.server.ts";
 import { AppError } from "../../errors.ts";
 import type { OrdersTestContext } from "./orders-test-support.test.ts";
 
@@ -34,6 +35,10 @@ export async function run(context: OrdersTestContext) {
     .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
       provisional.externalOrderId,
     ]);
+  assert.deepEqual(
+    [...(await loadEbayProvisionalIdentityIds(provisional.externalAccountId))],
+    provisional.sourceIdentityIds,
+  );
 
   const canonical = structuredClone(fixture[1]);
   canonical.externalOrderId = "ebay-canonical-final";
@@ -75,6 +80,7 @@ export async function run(context: OrdersTestContext) {
     ).rows[0].count,
     "1",
   );
+  assert.deepEqual([...(await loadEbayProvisionalIdentityIds(provisional.externalAccountId))], []);
   assert.equal(
     (
       await database.getPool().query(

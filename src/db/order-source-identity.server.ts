@@ -2,6 +2,25 @@ import type pg from "pg";
 
 import { AppError } from "../errors.ts";
 import type { OrderInput } from "../orders.ts";
+import { getPool } from "./client.server.ts";
+
+export async function loadEbayProvisionalIdentityIds(externalAccountId: string) {
+  const result = await getPool().query<{ external_id: string }>(
+    `SELECT identities.external_id
+     FROM order_source_identities AS identities
+     JOIN orders ON orders.id = identities.order_id
+     WHERE identities.provider = 'EBAY'
+       AND identities.external_account_id = $1
+       AND identities.identity_kind = 'ORDER_LINE_ITEM'
+       AND orders.provider = 'EBAY'
+       AND orders.external_account_id = $1
+       AND orders.payment_status = 'PENDING'
+       AND orders.cancelled_at IS NULL
+       AND orders.raw_snapshot_json #>> '{sourceSnapshot,sourceApi}' = 'EBAY_TRADING'`,
+    [externalAccountId],
+  );
+  return new Set(result.rows.map(({ external_id }) => external_id));
+}
 
 export async function reconcileEbayIdentity(client: pg.PoolClient, input: OrderInput) {
   if (input.provider !== "EBAY") {
