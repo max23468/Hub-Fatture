@@ -11,6 +11,7 @@
 | [Registro errori](contracts/error-registry.md)                                       | Codici stabili e comportamento operativo                  | Corrente    | Sì             |
 | [Dominio ordini](contracts/order-domain.md)                                          | Fonti, import, raggruppamento e concorrenza               | Corrente    | Sì             |
 | [Inventario segreti](runbooks/secret-inventory.md)                                   | Nomi logici, custodia e rotazione senza valori            | Corrente    | Sì             |
+| [Rotazione keyset eBay](runbooks/ebay-keyset-rotation.md)                            | Cambio coordinato di credenziali e nuovo consenso OAuth   | Corrente    | Sì             |
 | [Ordini e preparazione fattura](evidence/order-domain.md)                            | Capacità e gate ripetibili del dominio                    | Corrente    | No             |
 | [Connettori Shopify ed eBay](evidence/connectors.md)                                 | Contratti API, fixture e gate dei provider                | Corrente    | No             |
 | [Audit Aruba e profilo FatturaPA](evidence/aruba-fatturapa-profile.md)               | Profilo fiscale, numerazione e prove anonimizzate         | Corrente    | No             |
