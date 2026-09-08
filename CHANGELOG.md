@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.26
+
+- Hub Fatture può installare da standard input il refresh token creato dal RuName canonico SyncBay: prima di cifrarlo verifica gli scope di lettura e l’identità del venditore, conservando interfaccia e route esistenti.
+- Il runbook coordina consenso SyncBay, cambio del keyset, trasferimento diretto del token, relay account deletion e rollback.
+
 ## 1.3.25
 
 - La verifica finale delle fatture Aruba conserva la città del destinatario letta dall’XML ufficiale, così i collegamenti automatici basati su nome, città e Paese vengono archiviati senza interrompere la sincronizzazione.
