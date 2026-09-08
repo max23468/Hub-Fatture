@@ -29,7 +29,8 @@ file versionati.
 1. Rileggere connessione eBay, ultimo aggiornamento, cursore e job aperti.
 2. Fermare `app-worker`, lasciando disponibile `app-web` per il consenso.
 3. Aggiornare insieme `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET` ed `EBAY_RUNAME`
-   nella configurazione Production. Conservare `EBAY_ACCOUNT_REFERENCE=botCF`.
+   nella configurazione Production. Conservare il valore live già verificato di
+   `EBAY_ACCOUNT_REFERENCE` e riconfermarlo tramite la Identity API.
 4. Ricreare `app-web` per caricare il nuovo client.
 5. In **Impostazioni**, avviare il collegamento eBay e completare il consenso.
    La callback verifica l'account venditore prima di sostituire il refresh token

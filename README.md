@@ -48,7 +48,7 @@ All'avvio lo stack applica le migrazioni. La prima configurazione usa `/setup`, 
 
 L'ambiente locale accetta indifferentemente `localhost` e `127.0.0.1`; in Production vale soltanto l'origine dichiarata in `APP_BASE_URL`.
 
-I connettori richiedono una chiave casuale di 32 byte codificata Base64 URL-safe, le credenziali dell'app Shopify dedicata e il keyset eBay `botCF 2`. L'account venditore atteso resta `botCF`: nome del keyset e identità restituita da eBay hanno funzioni distinte. I soli nomi delle variabili sono elencati in `.env.example`; token e secret restano nel secret store. La configurazione e i gate osservabili sono descritti nell'[evidenza connettori](docs/evidence/connectors.md).
+I connettori richiedono una chiave casuale di 32 byte codificata Base64 URL-safe, le credenziali dell'app Shopify dedicata e il keyset eBay `botCF 2`. Il nome del keyset e l'identità venditore restituita da eBay hanno funzioni distinte: la rotazione conserva il valore Production già verificato di `EBAY_ACCOUNT_REFERENCE`. I soli nomi delle variabili sono elencati in `.env.example`; token e secret restano nel secret store. La configurazione e i gate osservabili sono descritti nell'[evidenza connettori](docs/evidence/connectors.md).
 
 Shopify è collegato soltanto in Production al negozio Numisleo. Development usa fixture e
 contract test sintetici e non avvia Shopify CLI contro l'identità Production, così un tunnel
