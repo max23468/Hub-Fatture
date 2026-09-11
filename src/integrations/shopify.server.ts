@@ -735,6 +735,8 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
         method: text(transaction.gateway) ?? "SHOPIFY",
         status: transaction.status === "SUCCESS" ? "PAID" : "PENDING",
         amount: amount.amount,
+        presentmentCurrency:
+          money(record(transaction.amountSet).presentmentMoney)?.currency ?? null,
         shopifyPaymentsFeeAmount: shopifyPaymentsFee(transaction, total.currency),
         paidAt: text(transaction.processedAt) ?? null,
       };

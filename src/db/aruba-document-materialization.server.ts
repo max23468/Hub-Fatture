@@ -28,7 +28,7 @@ import {
   fiscalProfileSchema,
 } from "../documents.ts";
 import { AppError } from "../errors.ts";
-import { effectiveApprovedInvoiceSql } from "./billing-case-sql.server.ts";
+import { effectiveApprovedInvoiceSql, orderPaymentRoundingSql } from "./billing-case-sql.server.ts";
 import {
   arubaAccountReference,
   arubaRuntimeEnvironment,
@@ -308,8 +308,10 @@ async function materializeExternalInvoice(
     billing_case_id: string | null;
     customer_snapshot: Record<string, unknown>;
     canonical_billable_amount: number;
+    payment_rounding_amount: number;
   }>(
     `SELECT orders.id, orders.customer_id, orders.billing_case_id,
+            ${orderPaymentRoundingSql("orders")} AS payment_rounding_amount,
             (orders.gross_amount - orders.deducted_shopify_payments_fee_amount - coalesce((
               SELECT sum(refunds.amount) FROM refunds
               WHERE refunds.order_id = orders.id AND refunds.status = 'COMPLETED'
@@ -327,11 +329,23 @@ async function materializeExternalInvoice(
     0,
   );
   const differenceAmount = imported.totalAmount - sourceTotalAmount;
+  const paymentRoundingAmount = order.rows.reduce(
+    (sum, item) => sum + item.payment_rounding_amount,
+    0,
+  );
+  // Un documento emesso sull'incasso effettivo conserva la differenza con la sua causa.
+  const paymentRounding =
+    !manualAmountMismatch && differenceAmount !== 0 && differenceAmount === paymentRoundingAmount;
+  const differenceReason = manualAmountMismatch
+    ? remote.decision_reason
+    : paymentRounding
+      ? paymentRoundingReason(differenceAmount)
+      : null;
   const currentOrder = order.rows[0];
   if (
     !currentOrder ||
     order.rows.length !== matchedOrderIds.length ||
-    (!manualAmountMismatch && sourceTotalAmount !== imported.totalAmount) ||
+    (!manualAmountMismatch && !paymentRounding && sourceTotalAmount !== imported.totalAmount) ||
     (manualAmountMismatch && sourceTotalAmount === imported.totalAmount) ||
     new Set(order.rows.map((item) => item.customer_id)).size !== 1 ||
     new Set(order.rows.map((item) => item.billing_case_id)).size !== 1
@@ -429,7 +443,7 @@ async function materializeExternalInvoice(
       sourceTotal: sourceTotalAmount,
       total: imported.totalAmount,
       difference: differenceAmount,
-      differenceReason: manualAmountMismatch ? remote.decision_reason : null,
+      differenceReason,
     };
     const document = await client.query<{ id: string }>(
       `INSERT INTO documents
@@ -453,7 +467,7 @@ async function materializeExternalInvoice(
         imported.totalAmount,
         sourceTotalAmount,
         differenceAmount,
-        manualAmountMismatch ? remote.decision_reason : null,
+        differenceReason,
         digest,
         JSON.stringify(snapshot),
         JSON.stringify(imported.profile),
@@ -804,6 +818,11 @@ async function materializeExternalCreditNote(
     remote.id,
   ]);
   return documentId;
+}
+
+function paymentRoundingReason(differenceAmount: number) {
+  const euros = (Math.abs(differenceAmount) / 100).toFixed(2).replace(".", ",");
+  return `Arrotondamento dell’incasso: il documento Aruba riporta ${differenceAmount > 0 ? "+" : "−"}${euros} € rispetto al totale ordine`;
 }
 
 export async function materializeMatchedExternalDocument(

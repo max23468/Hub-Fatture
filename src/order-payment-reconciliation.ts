@@ -1,8 +1,10 @@
-const BANK_TRANSFER_OVERPAYMENT_TOLERANCE_CENTS = 2n;
+/** Scarto massimo, in centesimi, fra incasso e totale ordine accettato come arrotondamento. */
+export const PAYMENT_ROUNDING_TOLERANCE_CENTS = 2;
 
 interface PaymentForReconciliation {
   method: string;
   status: string;
+  presentmentCurrency?: string | null;
 }
 
 interface PaymentForFiscalMethod extends PaymentForReconciliation {
@@ -51,8 +53,17 @@ export function inferredInvoicePaymentMethod(
   return orders.length > 0 && orders.every(isShopifyBankTransferOrder) ? "MP05" : null;
 }
 
+function isConvertedShopifyPayment(payment: PaymentForReconciliation, currency: string) {
+  return (
+    normalizedPaymentMethod(payment.method) === "shopify_payments" &&
+    Boolean(payment.presentmentCurrency) &&
+    payment.presentmentCurrency !== currency
+  );
+}
+
 export function paymentsReconciled(input: {
   provider: "SHOPIFY" | "EBAY";
+  currency: string;
   grossAmount: number;
   payments: readonly PaymentForReconciliation[];
   paymentAmounts: readonly number[];
@@ -76,11 +87,17 @@ export function paymentsReconciled(input: {
   if (observablePaymentAmount === grossAmount) return true;
 
   const paidPayments = input.payments.filter((payment) => payment.status === "PAID");
-  const overpayment = observablePaymentAmount - grossAmount;
+  const difference = observablePaymentAmount - grossAmount;
+  const tolerance = BigInt(PAYMENT_ROUNDING_TOLERANCE_CENTS);
+  if (paidPayments.length === 0 || difference === 0n) return false;
+  // Un bonifico può essere arrotondato soltanto per eccesso; la conversione valuta di Shopify
+  // Payments può scostare l'incasso in entrambe le direzioni. Il fatturabile resta il totale ordine.
+  if (paidPayments.every((payment) => isBankTransferMethod(payment.method))) {
+    return difference > 0n && difference <= tolerance;
+  }
   return (
-    paidPayments.length > 0 &&
-    paidPayments.every((payment) => isBankTransferMethod(payment.method)) &&
-    overpayment > 0n &&
-    overpayment <= BANK_TRANSFER_OVERPAYMENT_TOLERANCE_CENTS
+    paidPayments.every((payment) => isConvertedShopifyPayment(payment, input.currency)) &&
+    difference >= -tolerance &&
+    difference <= tolerance
   );
 }

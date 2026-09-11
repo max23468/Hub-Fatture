@@ -681,8 +681,14 @@ Regole:
 - per una transazione Shopify Payments riuscita, commissione effettiva sottratta solo quando la relativa impostazione globale è `Sottrai`; la modalità predefinita è `Sottrai`;
 - PayPal, bonifico, PostePay, gateway manuali, altri metodi Shopify ed eBay restano sempre al totale ordine pieno;
 - un bonifico Shopify incassato può superare il totale ordine di uno o due centesimi per
-  arrotondamento del cliente: l'ordine resta riconciliato al totale pieno, senza aumentare
-  l'importo fatturabile; sottopagamenti, eccedenze superiori e altri metodi restano anomalie;
+  arrotondamento del cliente; un incasso Shopify Payments in una valuta di presentazione
+  diversa dall'euro può scostarsi di uno o due centesimi in entrambe le direzioni per la
+  conversione. In entrambi i casi l'ordine resta riconciliato al totale pieno, senza cambiare
+  l'importo fatturabile; sottopagamenti di bonifici, scostamenti superiori, incassi senza
+  conversione e altri metodi restano anomalie;
+- un documento Aruba emesso sull'incasso effettivo di questi ordini differisce dal
+  fatturabile esattamente dello stesso scostamento: il matcher lo considera coincidente e la
+  materializzazione registra la differenza con la causa di arrotondamento;
 - una preparazione composta esclusivamente da ordini Shopify con bonifico propone `MP05`;
   la successiva transazione Shopify `manual` vale come conferma del bonifico soltanto quando
   ha lo stesso importo e non sono presenti altri metodi concorrenti; preparazioni miste o

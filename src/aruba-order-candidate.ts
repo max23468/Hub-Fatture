@@ -14,6 +14,7 @@ export interface ArubaOrderCandidateSource {
   billing_case_id: string | null;
   refund_timing_ambiguous?: boolean;
   bank_transfer_paid_on_document_date?: boolean;
+  payment_rounding_amount?: number;
 }
 
 export function arubaOrderCandidateFromSource(
@@ -22,8 +23,10 @@ export function arubaOrderCandidateFromSource(
     billingCaseId?: string | null;
     billableAmount?: number;
     localOrderDate?: string;
+    paymentRoundingAmount?: number;
   } = {},
 ): ArubaOrderCandidate & { billingCaseId: string | null } {
+  const paymentRoundingAmount = overrides.paymentRoundingAmount ?? source.payment_rounding_amount;
   return {
     id: source.id,
     billingCaseId:
@@ -40,6 +43,7 @@ export function arubaOrderCandidateFromSource(
     ...(source.refund_timing_ambiguous === undefined
       ? {}
       : { refundTimingAmbiguous: source.refund_timing_ambiguous }),
+    ...(paymentRoundingAmount ? { paymentRoundingAmount } : {}),
     ...(source.bank_transfer_paid_on_document_date === undefined
       ? {}
       : { bankTransferPaidOnDocumentDate: source.bank_transfer_paid_on_document_date }),

@@ -19,7 +19,7 @@ import {
   arubaAccountReference as accountReference,
   arubaRuntimeEnvironment as environment,
 } from "./aruba-inventory-context.server.ts";
-import { effectiveApprovedInvoiceSql } from "./billing-case-sql.server.ts";
+import { effectiveApprovedInvoiceSql, orderPaymentRoundingSql } from "./billing-case-sql.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 
 interface InboundOrderCandidateRow extends ArubaOrderCandidateSource {
@@ -86,6 +86,7 @@ export async function arubaOrderCandidates(client: pg.PoolClient, remote: Remote
                 AND (lower(payments.method) LIKE '%bonifico%'
                   OR lower(payments.method) LIKE '%bank%transfer%')
             ) AS bank_transfer_paid_on_document_date,
+            ${orderPaymentRoundingSql("orders")} AS payment_rounding_amount,
             coalesce(nullif(billing_cases.customer_snapshot_json ->> 'displayName', ''),
               customers.display_name) AS recipient_name,
             coalesce(billing_cases.customer_snapshot_json -> 'taxIdentifiers',
@@ -394,6 +395,9 @@ export async function reconcileRemoteDocument(
     matchCandidate: arubaOrderCandidateFromSource(candidate, {
       billingCaseId: remote.documentType === "TD01" ? candidate.billing_case_id : null,
       billableAmount: candidate.match_amount,
+      // L'arrotondamento dell'incasso riguarda soltanto la fattura, non gli importi rimborsati.
+      paymentRoundingAmount:
+        remote.documentType === "TD01" ? (candidate.payment_rounding_amount ?? 0) : 0,
     }),
   }));
   for (const candidate of evaluatedCandidates) {
@@ -456,6 +460,7 @@ export async function reconcileRemoteDocument(
                 .toSorted()
                 .at(-1) ?? candidate.local_order_date,
             billableAmount: selectedAmount,
+            paymentRoundingAmount: 0,
           }),
         );
       }

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 14;
+export const ARUBA_MATCHER_VERSION = 15;
 export const ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES = ["TD01", "TD04"] as const;
 
 export const arubaRemoteStatusSchema = z.enum([
@@ -211,6 +211,7 @@ export interface ArubaOrderCandidate {
   recipientAddress: string | null;
   refundTimingAmbiguous?: boolean;
   bankTransferPaidOnDocumentDate?: boolean;
+  paymentRoundingAmount?: number;
 }
 
 export interface CandidateEvaluation {
@@ -237,6 +238,7 @@ export interface CandidateEvaluation {
     address: boolean;
     bankTransferPayment?: boolean;
     refundTimingClear?: boolean;
+    paymentRounding?: boolean;
   };
 }
 
@@ -544,7 +546,11 @@ function evaluateOrderCandidate(
   const sameDay = elapsedDays === 0;
   const nearDate = elapsedDays >= 0 && elapsedDays <= 3;
   const withinSevenDays = elapsedDays >= 0 && elapsedDays <= 7;
-  const total = remote.totalAmount === candidate.billableAmount;
+  const paymentRounding = Boolean(
+    candidate.paymentRoundingAmount &&
+    remote.totalAmount === candidate.billableAmount + candidate.paymentRoundingAmount,
+  );
+  const total = remote.totalAmount === candidate.billableAmount || paymentRounding;
   const remoteName = normalizedRecipientName(remote.recipientName);
   const sameForeignCountry = Boolean(
     remote.recipientCountryCode &&
@@ -665,6 +671,7 @@ function evaluateOrderCandidate(
       address,
       bankTransferPayment,
       refundTimingClear,
+      ...(paymentRounding ? { paymentRounding } : {}),
     },
   };
 }
@@ -695,6 +702,10 @@ export function groupOrderCandidates<
       displayNumbers: items.map((item) => item.displayNumber),
       orderIds: items.map((item) => item.id),
       billableAmount: items.reduce((sum, item) => sum + item.billableAmount, 0),
+      paymentRoundingAmount: items.reduce(
+        (sum, item) => sum + (item.paymentRoundingAmount ?? 0),
+        0,
+      ),
       localOrderDate: items.map((item) => item.localOrderDate).toSorted()[0]!,
       recipientTaxIdentifiers: [...recipientTaxIdentifiers.values()],
       refundTimingAmbiguous: items.some((item) => item.refundTimingAmbiguous),

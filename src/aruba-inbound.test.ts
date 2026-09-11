@@ -369,6 +369,50 @@ test("nome, città e Paese univoci collegano una TD01 entro sette giorni", () =>
   );
 });
 
+test("il totale Aruba sull'incasso arrotondato collega soltanto lo scarto riconosciuto", () => {
+  const roundedRemote: RemoteInventoryDocument = {
+    ...remote,
+    documentDate: "2026-09-11",
+    totalAmount: 16_943,
+    recipientName: "Robert Pasik",
+    recipientTaxId: null,
+    recipientTaxIdentifiers: [],
+    recipientCountryCode: "PL",
+    recipientCity: "Warszawa",
+    recipientAddress: "Ulica 1 00-001 Warszawa PL",
+    xmlSha256: "b".repeat(64),
+  };
+  const candidate = {
+    id: "converted-payment",
+    provider: "SHOPIFY" as const,
+    displayNumber: "#4086",
+    localOrderDate: "2026-09-11",
+    billableAmount: 16_944,
+    paymentRoundingAmount: -1,
+    recipientName: "Robert Pasik",
+    recipientTaxIdentifiers: [],
+    recipientCountryCode: "PL",
+    recipientCity: "Warszawa",
+    recipientAddress: "Ulica 2 00-001 Warszawa PL",
+  };
+
+  const matched = selectOrderMatch(roundedRemote, [candidate]);
+  assert.equal(matched.status, "MATCHED");
+  assert.equal(matched.evaluations[0]?.signals.total, true);
+  assert.equal(matched.evaluations[0]?.signals.paymentRounding, true);
+  assert.equal(
+    selectOrderMatch(roundedRemote, [{ ...candidate, paymentRoundingAmount: undefined }]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(roundedRemote, [{ ...candidate, paymentRoundingAmount: 1 }]).status,
+    "UNMATCHED",
+  );
+  const exact = selectOrderMatch({ ...roundedRemote, totalAmount: 16_944 }, [candidate]);
+  assert.equal(exact.status, "MATCHED");
+  assert.equal(exact.evaluations[0]?.signals.paymentRounding, undefined);
+});
+
 test("codice fiscale, data e importo univoci prevalgono su nome e indirizzo discordanti", () => {
   const candidate = {
     provider: "SHOPIFY" as const,

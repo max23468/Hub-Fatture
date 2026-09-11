@@ -185,6 +185,40 @@ export async function runPaymentsCoreScenario(context: OrdersTestContext) {
     { status: "READY", totals_reconciled: "true" },
   );
 
+  const convertedPayment = structuredClone(fixture[0]);
+  convertedPayment.externalOrderId = "shop-order-converted-payment";
+  convertedPayment.externalCustomerId = "shop-customer-converted-payment";
+  convertedPayment.customer.taxIdentifiers[0].value = "RSSMRA80A01H504U";
+  convertedPayment.createdAt = "2026-08-18T08:00:00Z";
+  convertedPayment.updatedAt = "2026-08-18T09:00:00Z";
+  convertedPayment.payments[0].method = "shopify_payments";
+  convertedPayment.payments[0].amount = "121.99";
+  const convertedState = async () =>
+    (
+      await database.getPool().query(
+        `SELECT billing_cases.status,
+                orders.normalized_snapshot_json ->> 'totalsReconciled' AS totals_reconciled,
+                orders.normalized_snapshot_json ->> 'reviewFingerprint' AS fingerprint
+         FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+         WHERE orders.external_order_id = $1`,
+        [convertedPayment.externalOrderId],
+      )
+    ).rows[0];
+  await orders.importOrders([convertedPayment], { id: 1, requestId: "test-converted-legacy" });
+  const beforeCurrency = await convertedState();
+  assert.deepEqual(
+    { status: beforeCurrency.status, totals_reconciled: beforeCurrency.totals_reconciled },
+    { status: "NEEDS_REVIEW", totals_reconciled: "false" },
+  );
+  convertedPayment.payments[0].presentmentCurrency = "PLN";
+  convertedPayment.updatedAt = "2026-08-18T10:00:00Z";
+  await orders.importOrders([convertedPayment], { id: 1, requestId: "test-converted-replay" });
+  assert.deepEqual(await convertedState(), {
+    status: "READY",
+    totals_reconciled: "true",
+    fingerprint: beforeCurrency.fingerprint,
+  });
+
   for (const [suffix, amount] of [
     ["excessive", "122.03"],
     ["underpaid", "121.98"],
