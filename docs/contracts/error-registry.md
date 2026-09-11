@@ -63,4 +63,4 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | `ARUBA_API_COOLDOWN_ACTIVE`            | PROVIDER temporaneo   | sì               | attendere il cooldown                 |
 | `ARUBA_API_AUTH_INTERVAL_ACTIVE`       | PROVIDER temporaneo   | sì               | attendere il retry automatico breve   |
 | `ARUBA_PREFLIGHT_REQUIRED`             | CONFLICT temporaneo   | no               | aggiornare account e preflight        |
-| `UNKNOWN`                              | UNKNOWN               | no               | diagnosticare con request ID          |
+| `UNKNOWN`                              | UNKNOWN               | no               | diagnosticare con request o job ID    |

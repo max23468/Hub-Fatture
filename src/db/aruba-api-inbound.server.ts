@@ -898,8 +898,20 @@ export async function runArubaApiInboundJob(
       };
     }
   } catch (error) {
-    const appError =
-      error instanceof AppError ? error : new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    if (!(error instanceof AppError)) {
+      // Il messaggio può contenere SQL o dati fiscali: si registrano soltanto classe e codice.
+      const code = (error as { code?: unknown } | null)?.code;
+      console.error(
+        JSON.stringify({
+          event: "aruba_inbound_unexpected_error",
+          jobId: job.id,
+          runId: run.id,
+          errorClass: error instanceof Error ? error.constructor.name : typeof error,
+          errorCode: typeof code === "string" && /^[A-Z0-9_]{1,40}$/.test(code) ? code : null,
+        }),
+      );
+    }
+    const appError = error instanceof AppError ? error : new AppError("UNKNOWN", 500);
     const retryable =
       appError.code === "PROVIDER_RATE_LIMITED" ||
       appError.code === "ARUBA_API_COOLDOWN_ACTIVE" ||
