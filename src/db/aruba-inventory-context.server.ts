@@ -60,7 +60,7 @@ export async function refreshArubaIdentityResolutions(
   if (ids.length)
     await client.query(
       `UPDATE aruba_document_matches SET status = 'UNKNOWN_REMOTE_STATE', method = 'NONE',
-       signals_json = (signals_json - 'identityCollisionExcluded') ||
+       signals_json = (signals_json - 'identityCollisionExcluded' - 'transmissionAbsence') ||
          '{"providerIdentityCollision":true,"identityCollisionCandidatesVerified":false}', updated_at = now()
      WHERE remote_document_id = ANY($1::bigint[])`,
       [ids],

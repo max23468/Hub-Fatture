@@ -174,6 +174,102 @@ test("monitoraggio Aruba applica priorità, soglie persistenti e controlli canon
           OR id LIKE 'ARUBA_API_COOLDOWN:%'`,
     );
     assert.equal(resolved.rows[0]!.open, "0");
+
+    const { scheduleDueSyncs } = await import("./connector-jobs.server.ts");
+    const { confirmArubaTransmissionAbsence } =
+      await import("./aruba-transmission-absence.server.ts");
+    const { AppError } = await import("../errors.ts");
+    const excludedRemote = (
+      await pool.query<{ id: string }>(
+        `INSERT INTO aruba_remote_documents
+           (environment, account_reference, remote_id, document_type, fiscal_year, series,
+            fiscal_number, document_date, total_amount, remote_status,
+            remote_status_observed_at, metadata_digest, automatic_source, provider_group_id,
+            provider_sdi_id)
+         VALUES ('MOCK', 'synthetic-aruba-account', 'dry-run-group:0001', 'TD01', 2026, 'FPR',
+           '7001', current_date - 10, 1000, 'SUBMITTED', now() - interval '10 days',
+           repeat('e', 64), 'API', 'dry-run-group', '0')
+         RETURNING id::text`,
+      )
+    ).rows[0]!;
+    await pool.query(
+      `INSERT INTO aruba_document_matches
+         (remote_document_id, status, method, matcher_version, signals_json, decided_by,
+          decision_reason, decided_at)
+       VALUES ($1, 'UNMATCHED', 'MANUAL', 1, '{"identityCollisionExcluded":true}', 1,
+         'Documento sintetico escluso come errato', now())`,
+      [excludedRemote.id],
+    );
+    await pool.query(
+      `UPDATE aruba_submissions SET status = 'SUBMITTED', remote_id = 'dry-run-group',
+         remote_status_changed_at = now() - interval '10 days', next_readback_at = now();
+       INSERT INTO aruba_submission_attempts
+         (id, submission_id, operation, attempt_number, request_fingerprint, xml_sha256,
+          status, started_at)
+       SELECT gen_random_uuid(), id, 'DRY_RUN', 1, repeat('f', 64), repeat('a', 64),
+         'SUCCEEDED', now() - interval '10 days'
+       FROM aruba_submissions;
+       DELETE FROM jobs WHERE type = 'aruba_readback_submission';
+       UPDATE connections SET api_paused = false;`,
+    );
+    const readbackJobs = async () =>
+      (
+        await pool.query<{ count: number }>(
+          `SELECT count(*)::integer AS count FROM jobs WHERE type = 'aruba_readback_submission'`,
+        )
+      ).rows[0]!.count;
+    const openKinds = async () => {
+      await controls.refreshOperationalControls();
+      return (await controls.readOperationalControls({})).rows;
+    };
+
+    const excludedControls = await openKinds();
+    assert.equal(
+      excludedControls.some((row) => row.kind === "ARUBA_SUBMISSION_OVERDUE"),
+      false,
+      "il documento escluso come errato non duplica il controllo di attesa SdI",
+    );
+    const erroneous = excludedControls.find((row) => row.kind === "ARUBA_ERRONEOUS_DOCUMENT");
+    assert.equal(erroneous?.metadata_json.transmissionAbsenceEligible, true);
+    await scheduleDueSyncs();
+    assert.equal(await readbackJobs(), 1, "prima della chiusura il monitoraggio resta attivo");
+    await pool.query(`DELETE FROM jobs WHERE type = 'aruba_readback_submission'`);
+    const owner = { id: 1, canApprove: true, requestId: "transmission-absence-test" };
+    const reason = "Nessun ID SdI, notifica o invio dopo il solo dry-run";
+    await assert.rejects(
+      confirmArubaTransmissionAbsence(
+        excludedRemote.id,
+        "d".repeat(64),
+        reason,
+        "confirmed",
+        owner,
+      ),
+      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_CONFLICT",
+    );
+    await confirmArubaTransmissionAbsence(
+      excludedRemote.id,
+      erroneous!.metadata_json.metadataDigest!,
+      reason,
+      "confirmed",
+      owner,
+    );
+    await scheduleDueSyncs();
+    assert.equal(await readbackJobs(), 0, "la chiusura confermata ferma il monitoraggio");
+    assert.equal(
+      (await openKinds()).some((row) => row.kind === "ARUBA_ERRONEOUS_DOCUMENT"),
+      false,
+    );
+
+    await pool.query(
+      `UPDATE aruba_remote_documents SET metadata_digest = repeat('9', 64) WHERE id = $1`,
+      [excludedRemote.id],
+    );
+    await scheduleDueSyncs();
+    assert.equal(await readbackJobs(), 1, "evidenze Aruba diverse riattivano il monitoraggio");
+    assert.equal(
+      (await openKinds()).some((row) => row.kind === "ARUBA_ERRONEOUS_DOCUMENT"),
+      true,
+    );
     await closePool();
   } finally {
     await import("./client.server.ts").then(({ closePool }) => closePool());

@@ -38,6 +38,7 @@ import {
   resolveArubaDocumentMatch,
 } from "../../src/db/aruba-manual-decisions.server.ts";
 import { importArubaRemoteOfficialFileAsActor } from "../../src/db/aruba-official-file-import.server.ts";
+import { confirmArubaTransmissionAbsence } from "../../src/db/aruba-transmission-absence.server.ts";
 import { retryFailedJob } from "../../src/db/connector-jobs.server.ts";
 import { completeShopifyDataRequest } from "../../src/db/connector-webhooks.server.ts";
 import {
@@ -212,6 +213,16 @@ export async function action({ request }: Route.ActionArgs) {
         actor,
       );
       await resolveOperationalControl(controlId, "ARUBA_MATCHED", note);
+      return actionRedirect({ outcome: "completato" });
+    }
+    if (intent === "confirm-aruba-transmission-absence") {
+      await confirmArubaTransmissionAbsence(
+        form.get("remoteDocumentId") ?? "",
+        form.get("metadataDigest") ?? "",
+        form.get("reason"),
+        form.get("confirmation"),
+        actor,
+      );
       return actionRedirect({ outcome: "completato" });
     }
     if (intent === "confirm-aruba-out-of-scope") {
@@ -606,11 +617,57 @@ function ControlActions({
       </Form>
     );
   }
-  return (
-    <Link className="button" to={control.href}>
+  return <ControlSourceAction control={control} canApprove={canApprove} csrfToken={csrfToken} />;
+}
+
+function ControlSourceAction({
+  control,
+  canApprove,
+  csrfToken,
+}: {
+  control: OperationalControl;
+  canApprove: boolean;
+  csrfToken: string;
+}) {
+  const metadata = control.metadata_json;
+  const sourceLink = (className: string) => (
+    <Link className={className} to={control.href}>
       {control.primary_action}
       <ExternalLink aria-hidden="true" size={17} />
     </Link>
+  );
+  // La chiusura come mai trasmesso è l'unica azione aggiuntiva sul documento errato.
+  if (
+    control.kind !== "ARUBA_ERRONEOUS_DOCUMENT" ||
+    !canApprove ||
+    !metadata.transmissionAbsenceEligible ||
+    !metadata.remoteDocumentId ||
+    !metadata.metadataDigest
+  ) {
+    return sourceLink("button");
+  }
+  return (
+    <Form className="control-action-form" method="post">
+      <input type="hidden" name="csrf" value={csrfToken} />
+      <input type="hidden" name="controlId" value={control.id} />
+      <input type="hidden" name="intent" value="confirm-aruba-transmission-absence" />
+      <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
+      <input type="hidden" name="metadataDigest" value={metadata.metadataDigest} />
+      <p>{copy.controls.transmissionAbsenceHelp}</p>
+      <label className="control-note">
+        {copy.controls.transmissionAbsenceReason}
+        <textarea name="reason" minLength={20} maxLength={500} required />
+      </label>
+      <label className="control-action-form__confirmation">
+        <input type="checkbox" name="confirmation" value="confirmed" required />
+        {copy.controls.confirmTransmissionAbsence}
+      </label>
+      <button className="button" type="submit">
+        <ShieldCheck aria-hidden="true" size={17} />
+        {copy.controls.closeTransmissionAbsence}
+      </button>
+      {sourceLink("button button--secondary")}
+    </Form>
   );
 }
 

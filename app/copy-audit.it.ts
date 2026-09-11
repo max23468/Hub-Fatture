@@ -29,6 +29,8 @@ export const auditActionLabels = {
   ARUBA_IDENTITY_CONFLICT_RESOLVED: "Conflitto fra documenti Aruba risolto",
   ARUBA_DOCUMENT_MATCH_RESOLVED: "Documento Aruba collegato manualmente",
   ARUBA_DOCUMENT_CONFIRMED_OUT_OF_SCOPE: "Documento Aruba confermato fuori perimetro",
+  ARUBA_TRANSMISSION_ABSENCE_CONFIRMED: "Documento Aruba confermato come mai trasmesso a SdI",
+  ARUBA_PDF_COPIES_PRUNED: "Copie PDF Aruba ridondanti eliminate",
   ARUBA_PREFLIGHT_OVERRIDDEN: "Controllo Aruba sostituito dopo verifica manuale",
   ARUBA_HELPER_TOKEN_CREATED: "Credenziale temporanea storica generata",
   ARUBA_READBACK_RECONCILED: "Readback Aruba riconciliato",

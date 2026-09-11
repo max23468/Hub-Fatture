@@ -42,6 +42,7 @@ import {
   type ArubaOutboundActor,
 } from "./aruba-api-outbound-shared.server.ts";
 import { arubaApiCooldownDelayMs, waitForArubaApiReadSlot } from "./aruba-api-traffic.server.ts";
+import { arubaSubmissionTransmissionAbsenceSql } from "./aruba-transmission-absence.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { assertJobLease, renewLockedJobLease } from "./connector-jobs.server.ts";
 import type { ClaimedJob } from "./connector-types.server.ts";
@@ -147,7 +148,7 @@ async function runSubmissionReadback(job: ClaimedJob, submissionId: string) {
          submissions.status IN
            ('ARUBA_ACCEPTED', 'SDI_PROCESSING', 'SUBMITTED', 'UNKNOWN', 'UNKNOWN_REMOTE_STATE')
          OR submissions.error_code = 'ARUBA_INVENTORY_CONFLICT'
-       )
+       ) AND NOT ${arubaSubmissionTransmissionAbsenceSql("submissions")}
        FOR UPDATE OF submissions`,
       [submissionId],
     );
@@ -509,6 +510,7 @@ export async function requestArubaSubmissionReadback(
          AND (submissions.status IN ('ARUBA_ACCEPTED', 'SDI_PROCESSING', 'SUBMITTED',
            'UNKNOWN', 'UNKNOWN_REMOTE_STATE')
            OR submissions.error_code = 'ARUBA_INVENTORY_CONFLICT')
+         AND NOT ${arubaSubmissionTransmissionAbsenceSql("submissions")}
        ORDER BY batches.created_at DESC LIMIT 1 FOR UPDATE OF submissions`,
       [documentId],
     );

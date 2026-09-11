@@ -136,6 +136,23 @@ comando con target estranei: rileggere manualmente `main`, `origin/main`,
 `git status`, `git worktree list`, branch locali/remoti e `git stash list`, quindi
 dichiarare che la rimozione non era applicabile e riportare i residui preservati.
 
+## Copie PDF Aruba ridondanti
+
+L’operazione applica la regola del contratto di conservazione soltanto su richiesta esplicita del
+titolare. Dalla root Production, senza argomenti esegue una simulazione in sola lettura e stampa
+documenti coinvolti, copie e byte ridondanti:
+
+```sh
+docker compose -f compose.yaml --env-file .env --env-file .deploy.env run --rm -T app-worker \
+  node build-server/operations/aruba-pdf-copies-prune.js
+```
+
+Dopo aver confrontato la simulazione con la decisione del titolare, ripetere lo stesso comando con
+`--apply`. L’esecuzione rifiuta una ricevuta del backup assente o più vecchia di 36 ore, elimina le
+righe sotto il lock dell’inventario, registra l’audit `ARUBA_PDF_COPIES_PRUNED` e rimuove i file
+dopo il commit. Un valore `unlinkFailures` diverso da zero indica file orfani non più referenziati
+da ricontrollare sul disco. Una seconda esecuzione deve restituire zero copie.
+
 ## Rollback
 
 Il rollback è applicativo: un workflow manuale può scegliere un commit precedente già contenuto in `main`; soltanto se lo schema è rimasto invariato, il deploy ripristina insieme applicazione, Compose e Caddyfile e ripete il readback. Se la modalità e-mail globale è `DISABLED`, il workflow rifiuta anche un candidato precedente che non la supporta, perché il vecchio worker potrebbe altrimenti accodare o inviare nuove copie. Lo script applica inoltre lo stesso ripristino automatico del bundle precedente quando fallisce il deploy in corso. Se lo schema è avanzato, non è rilevabile o la modalità disattivata non è supportata dal target, il rollback è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.

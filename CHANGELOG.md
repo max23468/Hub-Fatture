@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.30
+
+- Un documento Aruba escluso come emesso per errore non apre più anche il controllo di attesa SdI del relativo invio: resta un solo controllo.
+- Se quel documento nasce da un dry-run riuscito e resta fermo da oltre cinque giorni senza upload, invio, ID SdI o notifiche, il titolare può chiuderlo come mai trasmesso con motivazione e conferma. La chiusura è auditata, ferma readback e aggiornamenti mirati, non modifica Aruba e decade da sola se stato, metadati, ID SdI o notifiche cambiano.
+- Un’operazione interna con simulazione predefinita elimina, su richiesta del titolare, le copie PDF Aruba ridondanti generate prima della correzione dei download ripetuti. Conserva per ogni documento il PDF più recente, XML, P7M e notifiche; richiede un backup verificato e registra un audit critico con soli conteggi.
+- Su iPhone i campi data, compresa la scadenza nei Controlli, mantengono la stessa altezza degli altri campi, il testo allineato a sinistra e restano dentro lo schermo.
+
 ## 1.3.29
 
 - Il collegamento automatico delle fatture Aruba ambigue ma risolvibili non interrompe più la sincronizzazione: la query che registra l’abbinamento dichiara i tipi dei parametri e viene eseguita correttamente da PostgreSQL.

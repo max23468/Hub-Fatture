@@ -51,6 +51,8 @@ Ogni blocco registra classe, motivazione, approvatore, inizio, riesame previsto 
 5. Il readback verifica assenza dei record scaduti, assenza di file orfani e permanenza dei casi bloccati. Gli esiti anomali compaiono nel pannello e nel monitor locale.
 6. Il backup successivo deve completarsi prima di sostituire la copia Mac. Gli archivi precedenti cessano di contenere il dato entro la finestra di 35 giorni; non vengono riscritti selettivamente.
 
+Aruba rigenera il PDF di cortesia a ogni download, con byte diversi. Le copie ridondanti dello stesso documento remoto non formano una classe con scadenza: su decisione del titolare, l’operazione dedicata conserva la copia più recente, la stessa usata per l’e-mail al cliente, insieme a XML, P7M e notifiche SdI, ed esclude ogni copia referenziata da documenti, invii, e-mail, notifiche o file di gruppo. Richiede in Production la ricevuta del backup verificato, il lock dell’inventario Aruba e un audit critico con soli conteggi; i file vengono rimossi dopo il commit dei metadati. Simulazione ed esecuzione sono descritte nel runbook Production.
+
 Una richiesta di cancellazione dell’interessato non rimuove i dati soggetti a obbligo fiscale. Il titolare registra la richiesta, identifica la base giuridica per ciascuna classe, cancella o redige i dati eccedenti e comunica separatamente ciò che resta conservato per obbligo legale. Nessuna cancellazione fiscale è esposta come azione ordinaria nel frontend.
 
 ## Attivazione e verifiche
