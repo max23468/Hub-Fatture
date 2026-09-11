@@ -1233,12 +1233,23 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
       const inputBox = input.getBoundingClientRect();
       const fieldBox = input.closest("label")!.getBoundingClientRect();
       const formBox = input.closest("form")!.getBoundingClientRect();
+      const assignee = input.closest("form")!.querySelector("select[name=assignee]")!;
+      const style = getComputedStyle(input);
       return {
         insideField: inputBox.left >= fieldBox.left && inputBox.right <= fieldBox.right,
         insideForm: inputBox.left >= formBox.left && inputBox.right <= formBox.right,
+        sameHeight:
+          Math.round(inputBox.height) === Math.round(assignee.getBoundingClientRect().height),
+        // Motori desktop non riproducono il controllo nativo iOS: il reset deve restare esplicito.
+        nativeReset: style.appearance === "none" && style.textAlign === "left",
       };
     });
-    expect(dueDateContainment).toEqual({ insideField: true, insideForm: true });
+    expect(dueDateContainment).toEqual({
+      insideField: true,
+      insideForm: true,
+      sameHeight: true,
+      nativeReset: true,
+    });
   }
   await expect(page.getByRole("button", { name: "Collega come fattura già emessa" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Nessun candidato è corretto" })).toBeVisible();

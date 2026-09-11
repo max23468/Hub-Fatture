@@ -76,6 +76,14 @@ const statusLabels: Record<string, string> = {
   VALIDATION_FAILED: "Validazione non riuscita",
 };
 
+// Il documento escluso come errato ha già il proprio controllo: l'attesa SdI non va duplicata.
+const excludedRemoteSql = `EXISTS (SELECT 1 FROM aruba_remote_documents AS excluded_remote
+  JOIN aruba_document_matches AS excluded_matches
+    ON excluded_matches.remote_document_id = excluded_remote.id
+  WHERE excluded_remote.provider_group_id = submissions.remote_id
+    AND excluded_remote.environment = submissions.environment
+    AND excluded_matches.signals_json @> '{"identityCollisionExcluded":true}')`;
+
 export async function listArubaSubmissionControlCandidates() {
   const result = await getPool().query<{
     id: string;
@@ -93,7 +101,8 @@ export async function listArubaSubmissionControlCandidates() {
             (submissions.status IN ('ARUBA_ACCEPTED', 'SDI_PROCESSING', 'SUBMITTED')
               AND coalesce(submissions.remote_status_changed_at, submissions.accepted_at,
                            submissions.submitted_at, batches.updated_at)
-                    < now() - interval '24 hours') AS overdue
+                    < now() - interval '24 hours'
+              AND NOT ${excludedRemoteSql}) AS overdue
      FROM aruba_submissions AS submissions
      JOIN aruba_batches AS batches ON batches.id = submissions.batch_id
      JOIN documents ON documents.id = submissions.document_id
@@ -105,7 +114,8 @@ export async function listArubaSubmissionControlCandidates() {
         OR (submissions.status IN ('ARUBA_ACCEPTED', 'SDI_PROCESSING', 'SUBMITTED')
             AND coalesce(submissions.remote_status_changed_at, submissions.accepted_at,
                          submissions.submitted_at, batches.updated_at)
-                  < now() - interval '24 hours')
+                  < now() - interval '24 hours'
+            AND NOT ${excludedRemoteSql})
      ORDER BY observed_at, submissions.id`,
   );
   return result.rows.map((row) => {

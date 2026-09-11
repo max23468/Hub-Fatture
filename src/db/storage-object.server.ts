@@ -11,12 +11,17 @@ export interface StoredObjectEvidence {
   sizeBytes: number;
 }
 
-export async function readVerifiedStorageObject(row: StoredObjectEvidence): Promise<Buffer> {
+export function storageObjectPath(relativePath: string): string {
   const root = path.resolve(getConfig().DOCUMENT_STORAGE_ROOT);
-  const absolutePath = path.resolve(root, row.relativePath);
+  const absolutePath = path.resolve(root, relativePath);
   if (!absolutePath.startsWith(`${root}${path.sep}`)) {
     throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
   }
+  return absolutePath;
+}
+
+export async function readVerifiedStorageObject(row: StoredObjectEvidence): Promise<Buffer> {
+  const absolutePath = storageObjectPath(row.relativePath);
   let bytes: Buffer;
   try {
     bytes = await readFile(absolutePath);

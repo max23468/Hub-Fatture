@@ -73,8 +73,13 @@ Il titolare può risolvere localmente una collisione fra due documenti con XML u
 noti, scegliendo quello con emissione confermata e motivando l’esclusione dell’altro dai
 collegamenti. La decisione è atomica, auditata e vincolata alle evidenze rilette dal server;
 non fonde ID, non annulla documenti e non sostituisce la gestione fiscale su Aruba. Se il numero è già occupato da un documento locale con l’XML ufficiale escluso, viene archiviato separatamente il documento scelto: la deroga di archivio è vincolata alla decisione e ai due hash anche nel database. Il precedente documento e i suoi collegamenti rimangono immutabili; il suo ordine non viene riaperto senza uno scarto autorevole. Il documento
-indicato come errato resta in un controllo dedicato finché non risulta scartato. Nuove evidenze
-remote riaprono la verifica; un terzo documento non eredita mai la decisione sulla coppia.
+indicato come errato resta in un controllo dedicato finché non risulta scartato; l’attesa SdI
+dell’invio Hub collegato non apre un secondo controllo. Il titolare può chiuderlo confermando che
+il documento non è mai stato trasmesso soltanto se nasce da un dry-run riuscito senza upload o
+invio, non ha ID SdI né notifiche ed è fermo da oltre cinque giorni: la chiusura ferma readback e
+aggiornamenti mirati, non modifica Aruba e decade da sola se stato, metadati, ID SdI o notifiche
+cambiano. Nuove evidenze remote riaprono la verifica; un terzo documento non eredita mai la
+decisione sulla coppia.
 
 `AGENTS.md` governa il modo di lavorare, non modifica da solo il perimetro o le decisioni fiscali. README, indici e runbook devono rimandare alla fonte canonica senza duplicare intere sezioni. Se l'implementazione cambia un comportamento previsto, la stessa modifica aggiorna test e documentazione pertinente.
 

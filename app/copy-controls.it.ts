@@ -55,6 +55,12 @@ export const controlsCopy = {
   confirmCandidateRejection:
     "Confermo di avere confrontato il documento Aruba con tutti i candidati proposti",
   outOfScopeReason: "Documento non riferito a Shopify o eBay",
+  transmissionAbsenceHelp:
+    "Aruba mostra il documento fermo da oltre cinque giorni, senza ID SdI, notifiche o invii: risulta creato soltanto da una verifica. La chiusura ferma il monitoraggio; controllo e letture riprendono se Aruba cambia stato o metadati.",
+  transmissionAbsenceReason: "Verifica eseguita",
+  confirmTransmissionAbsence:
+    "Confermo che questo documento non è mai stato trasmesso a SdI. La decisione non modifica né elimina il documento su Aruba.",
+  closeTransmissionAbsence: "Chiudi come mai trasmesso",
   officialXml: "XML ufficiale scaricato da Aruba",
   importOfficialXml: "Importa e verifica XML",
   fileAcquired: "File ufficiale acquisito. Il controllo è stato aggiornato.",

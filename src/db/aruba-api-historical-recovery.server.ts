@@ -3,6 +3,7 @@ import { normalizedMatchText } from "../aruba-inbound.ts";
 import { fiscalNumberLabel } from "../fiscal-number.ts";
 import type { ArubaApiInvoicePage } from "../integrations/aruba-api.server.ts";
 import type { ArubaSyncRunRow } from "./aruba-api-context.server.ts";
+import { arubaTransmissionAbsenceSql } from "./aruba-transmission-absence.server.ts";
 import { arubaActionableCandidateSql } from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
 
@@ -84,7 +85,12 @@ export async function snapshotTargetedTargets(run: ArubaSyncRunRow) {
            AND remote.automatic_source = 'API' AND remote.provider_group_id IS NOT NULL
            AND remote.remote_status <> 'REJECTED'
            AND (
-             remote.remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+             (remote.remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+               AND NOT EXISTS (
+                 SELECT 1 FROM aruba_document_matches AS absence_matches
+                 WHERE absence_matches.remote_document_id = remote.id
+                   AND ${arubaTransmissionAbsenceSql("remote", "absence_matches")}
+               ))
              OR unresolved.remote_document_id IS NOT NULL
            )
          ORDER BY remote.provider_group_id`,

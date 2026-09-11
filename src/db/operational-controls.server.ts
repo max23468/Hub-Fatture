@@ -46,6 +46,8 @@ export interface OperationalControlMetadata {
     differenceAmount: number;
   }>;
   remoteDocumentId?: string;
+  metadataDigest?: string;
+  transmissionAbsenceEligible?: boolean;
   remoteStatus?: string;
   matchStatus?: string;
   hasXml?: boolean;
@@ -123,7 +125,8 @@ type ArubaControlRemote = Pick<
   | "total_amount"
   | "remote_status"
   | "last_observed_at"
->;
+> &
+  Partial<Pick<RemoteDocument, "metadata_digest" | "transmission_absence_eligible">>;
 
 function erroneousArubaControl(remote: ArubaControlRemote): ControlCandidate {
   const label =
@@ -142,6 +145,8 @@ function erroneousArubaControl(remote: ArubaControlRemote): ControlCandidate {
     detectedAt: remote.last_observed_at,
     metadata: {
       remoteDocumentId: remote.id,
+      metadataDigest: remote.metadata_digest,
+      transmissionAbsenceEligible: remote.transmission_absence_eligible ?? false,
       remoteStatus: remote.remote_status,
       matchStatus: "UNMATCHED",
       hasXml: true,

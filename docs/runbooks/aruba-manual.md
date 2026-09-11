@@ -52,5 +52,11 @@ alla riconciliazione ordinaria, conservando i controlli di profilo e compatibili
 errato resta separato e non viene collegato agli ordini. Il controllo **Documento Aruba indicato
 come errato** conserva la necessità di verificarne la gestione fiscale esterna finché non risulta
 scartato. Nessun annullamento, upload, invio o modifica Aruba deriva da questa decisione locale.
+
+Se il documento errato è nato da un dry-run e su Aruba resta fermo da oltre cinque giorni senza ID
+SdI, notifiche, upload o invii, lo stesso controllo propone **Chiudi come mai trasmesso**. Il
+titolare descrive la verifica e conferma: readback e aggiornamenti mirati si fermano, mentre il
+documento resta su Aruba e in archivio. Un cambio di stato, metadati, ID SdI o notifiche riapre
+il controllo e il monitoraggio senza ulteriori azioni.
 Una nuova osservazione che cambia le evidenze o un ulteriore documento duplicato richiede una
 nuova verifica. L’audit conserva autore, motivazione, identificativi ed evidenze della scelta.

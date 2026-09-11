@@ -9,6 +9,10 @@ import { writeAudit } from "./audit.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { activeConnectorEnvironment } from "./connector-environment.server.ts";
 import { arubaActionableCandidateSql } from "./billing-case-sql.server.ts";
+import {
+  arubaSubmissionTransmissionAbsenceSql,
+  arubaTransmissionAbsenceSql,
+} from "./aruba-transmission-absence.server.ts";
 import type { ClaimedJob, ConnectorActor, JobType } from "./connector-types.server.ts";
 
 const manuallyRetryableJobTypes: JobType[] = [
@@ -66,6 +70,11 @@ export async function scheduleDueSyncs() {
              THEN 'PRODUCTION' ELSE 'MOCK' END
              AND account_reference = connections.account_reference
              AND automatic_source = 'API' AND provider_group_id IS NOT NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM aruba_document_matches AS absence_matches
+               WHERE absence_matches.remote_document_id = aruba_remote_documents.id
+                 AND ${arubaTransmissionAbsenceSql("aruba_remote_documents", "absence_matches")}
+             )
              AND (
                remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
                OR EXISTS (
@@ -155,6 +164,7 @@ export async function scheduleDueSyncs() {
          AND submissions.status IN ('ARUBA_ACCEPTED', 'SDI_PROCESSING', 'SUBMITTED',
            'UNKNOWN', 'UNKNOWN_REMOTE_STATE')
          AND submissions.next_readback_at <= now()
+         AND NOT ${arubaSubmissionTransmissionAbsenceSql("submissions")}
          AND connections.status = 'CONNECTED' AND NOT connections.api_paused
          AND connections.encrypted_credentials IS NOT NULL
        ON CONFLICT DO NOTHING`,

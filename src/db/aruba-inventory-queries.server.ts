@@ -1,6 +1,10 @@
 import type { ArubaRemoteStatus } from "../aruba-inbound.ts";
 import { arubaBlockingMatchPredicate } from "./aruba-inventory-health.server.ts";
 import {
+  arubaTransmissionAbsenceEligibleSql,
+  arubaTransmissionAbsenceSql,
+} from "./aruba-transmission-absence.server.ts";
+import {
   arubaActionableCandidateSql,
   arubaAmountMismatchCandidateSql,
   arubaCaseCandidateSql,
@@ -49,6 +53,8 @@ export interface RemoteDocument {
   identity_collision: boolean;
   control_remote_id: string;
   identity_excluded: boolean;
+  metadata_digest: string;
+  transmission_absence_eligible: boolean;
   amount_mismatch: boolean;
   external_evidence: boolean;
   requires_control: boolean;
@@ -141,6 +147,9 @@ const remoteDocumentsSql = `
          ) ELSE remote.id::text END AS control_remote_id,
          coalesce((matches.signals_json ->> 'identityCollisionExcluded')::boolean, false)
            AS identity_excluded,
+         remote.metadata_digest,
+         coalesce(${arubaTransmissionAbsenceEligibleSql("remote", "matches")}, false)
+           AS transmission_absence_eligible,
          count(*) OVER()::int AS total_count,
          EXISTS (SELECT 1 FROM aruba_files
            WHERE aruba_files.remote_document_id = remote.id
@@ -161,7 +170,8 @@ const remoteDocumentsSql = `
              FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS evidence_candidate
              WHERE ${arubaExternalEvidenceCandidateSql("evidence_candidate", "remote")}
            )) AS external_evidence,
-         ((matches.signals_json @> '{"identityCollisionExcluded":true}' AND remote.remote_status <> 'REJECTED')
+         ((matches.signals_json @> '{"identityCollisionExcluded":true}' AND remote.remote_status <> 'REJECTED'
+          AND NOT coalesce(${arubaTransmissionAbsenceSql("remote", "matches")}, false))
            OR (${arubaBlockingMatchPredicate})
            OR (matches.method <> 'MANUAL'
              AND matches.status IN ('UNMATCHED', 'AMBIGUOUS', 'PROFILE_CONFLICT')
@@ -230,7 +240,8 @@ const remoteDocumentsSql = `
             WHERE aruba_files.remote_document_id = remote.id
               AND aruba_files.kind = 'ARUBA_XML'))
       )) OR (NOT $5::boolean AND (
-        (matches.signals_json @> '{"identityCollisionExcluded":true}' AND remote.remote_status <> 'REJECTED')
+        (matches.signals_json @> '{"identityCollisionExcluded":true}' AND remote.remote_status <> 'REJECTED'
+          AND NOT coalesce(${arubaTransmissionAbsenceSql("remote", "matches")}, false))
         OR ${arubaBlockingMatchPredicate}
         OR (matches.method <> 'MANUAL'
           AND matches.status IN ('UNMATCHED', 'AMBIGUOUS', 'PROFILE_CONFLICT')

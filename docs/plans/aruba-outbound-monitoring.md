@@ -354,7 +354,8 @@ Le soglie si riferiscono alla fase osservabile e non promettono tempi che il pro
 - `ARUBA_ACCEPTED` senza presa in carico oltre 24 ore: controllo importante;
 - `SDI_PROCESSING` senza passaggio a `SUBMITTED` oltre 24 ore: controllo importante;
 - `SUBMITTED` senza esito terminale oltre 24 ore: richiesta di verifica, descritta come attesa
-  prolungata e non automaticamente come violazione Aruba;
+  prolungata e non automaticamente come violazione Aruba; se il documento remoto è già escluso come
+  errato, resta soltanto il suo controllo dedicato;
 - `REJECTED`, `NOT_DELIVERED`, `UNKNOWN` e `UNKNOWN_REMOTE_STATE`: controllo immediato con causa,
   conseguenza e azione diretta.
 

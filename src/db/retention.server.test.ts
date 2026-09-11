@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { temporaryDatabase } from "./database-fixture.ts";
@@ -7,12 +10,14 @@ import { runMigrations } from "./migrations.server.ts";
 
 test("la retention applica durate e hold senza alterare l'evidenza fiscale", async () => {
   const databaseFixture = await temporaryDatabase("retention");
+  const storageRoot = await mkdtemp(path.join(tmpdir(), "hub-fatture-retention-"));
   try {
     await runMigrations({ connectionString: databaseFixture.connectionString });
     process.env.APP_ENV = "test";
     process.env.APP_BASE_URL = "http://localhost:8080";
     process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
     process.env.DATABASE_URL = databaseFixture.connectionString;
+    process.env.DOCUMENT_STORAGE_ROOT = storageRoot;
 
     const database = await import("./client.server.ts");
     const { applyRetentionPolicy } = await import("./retention.server.ts");
@@ -361,8 +366,77 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
       ).rows[0]!.count,
       1,
     );
+
+    const copies = await import("./aruba-pdf-copies.server.ts");
+    const remote = await client.query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+         (environment, account_reference, remote_id, document_type, fiscal_year,
+          document_date, total_amount, remote_status, remote_status_observed_at,
+          metadata_digest)
+       VALUES ('MOCK', 'synthetic-aruba-account', 'pdf-copies', 'TD01', 2026, current_date,
+               1000, 'DELIVERED', now(), repeat('a', 64))
+       RETURNING id::text`,
+    );
+    const storeFile = async (kind: "ARUBA_PDF" | "ARUBA_XML", ageMinutes: number) => {
+      const relativePath = `aruba/pdf-copies/${randomUUID()}.${kind === "ARUBA_PDF" ? "pdf" : "xml"}`;
+      await mkdir(path.dirname(path.join(storageRoot, relativePath)), { recursive: true });
+      await writeFile(path.join(storageRoot, relativePath), `copia ${ageMinutes}`);
+      await client.query(
+        `WITH stored AS (
+           INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+           VALUES ($1, $2, encode(sha256(convert_to($2, 'UTF8')), 'hex'), 8, 'application/pdf')
+           RETURNING id
+         )
+         INSERT INTO aruba_files (remote_document_id, storage_object_id, kind, imported_at)
+         SELECT $3, stored.id, $1, now() - make_interval(mins => $4) FROM stored`,
+        [kind, relativePath, remote.rows[0]!.id, ageMinutes],
+      );
+      return relativePath;
+    };
+    const older = await storeFile("ARUBA_PDF", 30);
+    const middle = await storeFile("ARUBA_PDF", 20);
+    const latest = await storeFile("ARUBA_PDF", 10);
+    const officialXml = await storeFile("ARUBA_XML", 40);
+
+    assert.deepEqual(await copies.planRedundantArubaPdfCopies(), {
+      remoteDocuments: 1,
+      redundantFiles: 2,
+      redundantBytes: 16,
+    });
+    assert.deepEqual(await copies.pruneRedundantArubaPdfCopies(), {
+      remoteDocuments: 1,
+      redundantFiles: 2,
+      redundantBytes: 16,
+      unlinkFailures: 0,
+    });
+    const remaining = await client.query<{ relative_path: string }>(
+      `SELECT storage.relative_path FROM aruba_files AS files
+       JOIN storage_objects AS storage ON storage.id = files.storage_object_id
+       ORDER BY storage.relative_path`,
+    );
+    assert.deepEqual(
+      remaining.rows.map((row) => row.relative_path),
+      [latest, officialXml].toSorted(),
+    );
+    for (const removed of [older, middle]) {
+      await assert.rejects(access(path.join(storageRoot, removed)), { code: "ENOENT" });
+    }
+    await access(path.join(storageRoot, latest));
+    await access(path.join(storageRoot, officialXml));
+    const audit = await client.query<{ event_class: string; affected: string }>(
+      `SELECT event_class, metadata_json ->> 'affectedCount' AS affected FROM audit_events
+       WHERE action = 'ARUBA_PDF_COPIES_PRUNED'`,
+    );
+    assert.deepEqual(audit.rows, [{ event_class: "CRITICAL", affected: "2" }]);
+    assert.deepEqual(await copies.pruneRedundantArubaPdfCopies(), {
+      remoteDocuments: 0,
+      redundantFiles: 0,
+      redundantBytes: 0,
+      unlinkFailures: 0,
+    });
   } finally {
     await import("./client.server.ts").then(({ closePool }) => closePool());
     await databaseFixture.drop();
+    await rm(storageRoot, { recursive: true, force: true });
   }
 });
