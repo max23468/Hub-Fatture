@@ -977,20 +977,20 @@ export async function reconcileAutomaticAmbiguousInvoices(
     // react-doctor-disable-next-line react-doctor/async-await-in-loop -- La coorte viene riservata e materializzata sotto lo stesso lock inventario.
     const updated = await client.query<{ id: string }>(
       `UPDATE aruba_document_matches matches SET
-         status = 'MATCHED', method = 'AUTOMATIC', order_id = $2,
-         billing_case_id = (SELECT billing_case_id FROM orders WHERE id = $2),
+         status = 'MATCHED', method = 'AUTOMATIC', order_id = $2::bigint,
+         billing_case_id = (SELECT billing_case_id FROM orders WHERE id = $2::bigint),
          signals_json = matches.signals_json || '{"automaticAmbiguousCohort":true}'::jsonb,
          updated_at = now()
        WHERE matches.remote_document_id = $1 AND matches.status = 'AMBIGUOUS'
          AND matches.method = 'NONE'
          AND EXISTS (
            SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-           WHERE candidate ->> 'candidateId' = $2
+           WHERE candidate ->> 'candidateId' = $2::text
              AND coalesce((candidate ->> 'compatible')::boolean, false)
          )
          AND NOT EXISTS (
            SELECT 1 FROM aruba_document_matches claimed
-           WHERE claimed.status = 'MATCHED' AND claimed.order_id = $2
+           WHERE claimed.status = 'MATCHED' AND claimed.order_id = $2::bigint
              AND claimed.remote_document_id <> matches.remote_document_id
          )
        RETURNING matches.remote_document_id::text AS id`,

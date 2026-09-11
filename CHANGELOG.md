@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.29
+
+- Il collegamento automatico delle fatture Aruba ambigue ma risolvibili non interrompe più la sincronizzazione: la query che registra l’abbinamento dichiara i tipi dei parametri e viene eseguita correttamente da PostgreSQL.
+- Un errore interno durante la sincronizzazione Aruba non viene più presentato come dati non riconosciuti del provider: il job termina come errore inatteso e il log del worker ne registra classe e codice, senza il messaggio originale.
+- Nodemailer passa alla 9.1.1 e le dipendenze indirette js-yaml e morgan alle versioni corrette, chiudendo gli avvisi di sicurezza pubblicati sul trasporto e-mail e sui relativi parser.
+
 ## 1.3.28
 
 - Le richieste di cancellazione eBay eliminano soltanto le preparazioni rimaste orfane dagli ordini interessati, così un riferimento storico estraneo non interrompe il relay privacy da SyncBay.

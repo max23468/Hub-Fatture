@@ -1251,7 +1251,7 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
       ).rows[0].document_id,
       archivedPair[1].id,
     );
-    const { materializeLatestOfficialXml } =
+    const { materializeLatestOfficialXml, reconcileAutomaticAmbiguousInvoices } =
       await import("./aruba-document-materialization.server.ts");
     await withTransaction(async (client) => {
       assert.equal(await materializeLatestOfficialXml(client, chosen.id), archivedPair[1].id);
@@ -1267,6 +1267,102 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
       (await getPool().query("SELECT trigger_status FROM orders WHERE id = $1", [wrongOrder.id]))
         .rows[0].trigger_status,
       "INVOICED",
+    );
+
+    const automaticCase = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json,
+           fiscal_profile_version)
+         VALUES ($1, '2026-08-10', 'EUR', 'READY', $2, 1) RETURNING id::text`,
+        [customer.id, JSON.stringify(customerSnapshot)],
+      )
+    ).rows[0]!;
+    const automaticOrder = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO orders
+          (provider, external_account_id, external_order_id, display_number,
+           created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+           raw_snapshot_json, normalized_snapshot_json)
+         VALUES ('SHOPIFY', 'manual-link', 'automatic-cohort', '#1010', now(), now(),
+           '2026-08-10', 'EUR', 12345, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}', $3)
+         RETURNING id::text`,
+        [
+          customer.id,
+          automaticCase.id,
+          JSON.stringify({
+            orderReviewRequired: false,
+            deferredReviewRequired: false,
+            customerSnapshot,
+          }),
+        ],
+      )
+    ).rows[0]!;
+    const automaticXml = xml.replace("FPR 0001/26", "FPR 0010/26");
+    const automaticDigest = createHash("sha256").update(automaticXml).digest("hex");
+    const automaticPath = "aruba/manual/automatic-cohort.xml";
+    await writeFile(path.join(sharedStorageRoot, automaticPath), automaticXml, { mode: 0o600 });
+    const automaticRemote = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO aruba_remote_documents
+          (environment, account_reference, remote_id, document_type, fiscal_year, series,
+           fiscal_number, document_date, total_amount, remote_status,
+           remote_status_observed_at, metadata_digest, xml_sha256,
+           recipient_name_normalized, recipient_tax_id_normalized)
+         VALUES ('MOCK', 'synthetic-aruba-account', 'automatic-cohort', 'TD01', 2026,
+           'FPR', '10', '2026-08-10', 12345, 'DELIVERED', now(), repeat('a', 64), $1,
+           'MARIO ROSSI', 'RSSMRA80A01H501U')
+         RETURNING id::text`,
+        [automaticDigest],
+      )
+    ).rows[0]!;
+    const automaticStorage = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+         VALUES ('ARUBA_XML', $1, $2, $3, 'application/xml') RETURNING id::text`,
+        [automaticPath, automaticDigest, Buffer.byteLength(automaticXml)],
+      )
+    ).rows[0]!;
+    await getPool().query(
+      `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+       VALUES ($1, $2, 'ARUBA_XML')`,
+      [automaticRemote.id, automaticStorage.id],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, candidates_json)
+       VALUES ($1, 'AMBIGUOUS', 'NONE', $3,
+         jsonb_build_array(jsonb_build_object(
+           'candidateId', $2::text, 'orderIds', jsonb_build_array($2::text),
+           'compatible', true, 'reviewable', false,
+           'signals', jsonb_build_object('provider', true, 'sameDay', true,
+             'nearDate', true, 'recipient', true, 'taxId', true, 'total', true,
+             'explicitReference', false))))`,
+      [automaticRemote.id, automaticOrder.id, ARUBA_MATCHER_VERSION],
+    );
+    const automaticDocuments = await withTransaction((client) =>
+      reconcileAutomaticAmbiguousInvoices(client, [automaticRemote.id]),
+    );
+    assert.equal(automaticDocuments.length, 1);
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT matches.status, matches.method, matches.order_id::text,
+                  matches.document_id::text, orders.trigger_status
+           FROM aruba_document_matches matches
+           JOIN orders ON orders.id = matches.order_id
+           WHERE matches.remote_document_id = $1`,
+          [automaticRemote.id],
+        )
+      ).rows[0],
+      {
+        status: "MATCHED",
+        method: "AUTOMATIC",
+        order_id: automaticOrder.id,
+        document_id: automaticDocuments[0],
+        trigger_status: "INVOICED",
+      },
     );
   } finally {
     await closePool();

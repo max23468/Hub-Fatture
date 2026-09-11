@@ -1362,6 +1362,48 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       "la rilettura di un solo documento non rinnova la freschezza dell’intero inventario",
     );
 
+    await getPool().query(`CREATE FUNCTION synthetic_inventory_failure() RETURNS trigger
+      LANGUAGE plpgsql AS $$ BEGIN
+        RAISE EXCEPTION 'dato fiscale sintetico RSSMRA80A01H501U' USING ERRCODE = '42883';
+      END $$;
+      CREATE TRIGGER synthetic_inventory_failure BEFORE INSERT ON aruba_sync_run_pages
+        FOR EACH ROW EXECUTE FUNCTION synthetic_inventory_failure()`);
+    const unexpectedLogs: string[] = [];
+    const originalConsoleError = console.error;
+    console.error = (message: string) => unexpectedLogs.push(message);
+    try {
+      await getPool().query("INSERT INTO jobs (type) VALUES ('aruba_sync_inventory')");
+      const failingJob = await jobs.claimJob("aruba-unexpected-error-worker");
+      await assert.rejects(
+        api.runArubaApiInboundJob(failingJob!, {
+          rateDelayMs: 0,
+          now: new Date(Date.parse("2026-07-01T07:00:00.000Z") + cacheRunOrdinal++ * 60_000),
+        }),
+        (error) => error instanceof AppError && error.code === "UNKNOWN",
+      );
+      const failedRun = await getPool().query<{ id: string }>(
+        `SELECT id::text FROM aruba_sync_runs
+         WHERE status = 'FAILED' AND last_error_code = 'UNKNOWN'`,
+      );
+      assert.deepEqual(
+        unexpectedLogs.map((message) => JSON.parse(message)),
+        [
+          {
+            event: "aruba_inbound_unexpected_error",
+            jobId: failingJob!.id,
+            runId: failedRun.rows[0]?.id,
+            errorClass: "DatabaseError",
+            errorCode: "42883",
+          },
+        ],
+      );
+      assert.doesNotMatch(unexpectedLogs.join("\n"), /RSSMRA80A01H501U/);
+    } finally {
+      console.error = originalConsoleError;
+      await getPool().query(`DROP TRIGGER synthetic_inventory_failure ON aruba_sync_run_pages;
+        DROP FUNCTION synthetic_inventory_failure()`);
+    }
+
     const uncertainCommitDirectory = await mkdtemp(path.join(tmpdir(), "hub-fatture-commit-"));
     const uncertainCommitFile = path.join(uncertainCommitDirectory, "evidenza.xml");
     await writeFile(uncertainCommitFile, "evidenza sintetica");
