@@ -86,6 +86,8 @@ const ARUBA_REMOTE_IDENTITY_AND_DRY_RUN_CONTAINMENT =
 const EBAY_FULFILLMENT_CONFLICT_REPLAY = "078_ebay_fulfillment_conflict_replay.sql";
 const EBAY_COMPLETED_TRANSACTION_REPLAY = "079_ebay_completed_transaction_replay.sql";
 const EBAY_PHONE_MAPPER_REPLAY = "081_ebay_phone_mapper_replay.sql";
+const SHOPIFY_CURRENCY_CONVERSION_ROUNDING_REPLAY =
+  "082_shopify_currency_conversion_rounding_replay.sql";
 const CURRENT_MIGRATIONS = sortedMigrationFileNames(readdirSync("migrations"));
 const outboundIndex = CURRENT_MIGRATIONS.indexOf(ARUBA_API_OUTBOUND);
 assert.notEqual(outboundIndex, -1, `${ARUBA_API_OUTBOUND} assente dal catalogo migrazioni`);
@@ -206,6 +208,7 @@ export {
   EBAY_FULFILLMENT_CONFLICT_REPLAY,
   EBAY_COMPLETED_TRANSACTION_REPLAY,
   EBAY_PHONE_MAPPER_REPLAY,
+  SHOPIFY_CURRENCY_CONVERSION_ROUNDING_REPLAY,
   CURRENT_MIGRATIONS,
   outboundIndex,
   MIGRATIONS_AFTER_ARUBA_API_OUTBOUND,

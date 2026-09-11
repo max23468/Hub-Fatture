@@ -900,6 +900,10 @@ test("Shopify Payments converte ogni valuta di presentazione con il tasso di reg
       amount: { amount, currencyCode: conversion.currency },
     }));
     assert.equal(
+      mapShopifyOrder(multicurrency, "shop.example.invalid").payments[0]?.presentmentCurrency,
+      conversion.currency,
+    );
+    assert.equal(
       mapShopifyOrder(multicurrency, "shop.example.invalid").payments[0]?.shopifyPaymentsFeeAmount,
       conversion.expected,
       conversion.currency,

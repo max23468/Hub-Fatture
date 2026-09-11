@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.31
+
+- Un incasso Shopify Payments in valuta estera che, per la conversione in euro, differisce di uno o due centesimi dal totale ordine non sospende più la preparazione: l’ordine resta riconciliato al totale pieno e l’importo fatturabile non cambia. L’upgrade rilegge da Shopify gli ordini già interessati.
+- Una fattura Aruba emessa sull’incasso effettivo di un ordine con bonifico o conversione arrotondati viene collegata automaticamente quando lo scarto coincide esattamente con quello dell’incasso; il documento archivia la differenza con la causa. La nuova versione del matcher rivaluta le fatture già acquisite.
+
 ## 1.3.30
 
 - Un documento Aruba escluso come emesso per errore non apre più anche il controllo di attesa SdI del relativo invio: resta un solo controllo.

@@ -19,6 +19,9 @@ volta ai centesimi della valuta negozio. Tasso assente o nullo, valute miste o u
 in una valuta diversa restano errori provider fail-closed: HF non ricostruisce cambi esterni.
 Un readback Production in sola lettura ha confermato questa forma multivaluta; la regressione
 usa esclusivamente importi sintetici e copre più valute, incluse valute senza centesimi.
+Il pagamento normalizzato conserva anche la valuta di `amountSet.presentmentMoney`: serve
+soltanto a riconoscere lo scostamento di conversione dell'incasso e resta esclusa dal
+fingerprint di revisione.
 
 ## eBay
 

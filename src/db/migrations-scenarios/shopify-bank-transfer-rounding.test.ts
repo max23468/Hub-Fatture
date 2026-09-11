@@ -9,11 +9,17 @@ import {
   temporaryDatabase,
   withClient,
   SHOPIFY_BANK_TRANSFER_ROUNDING_REPLAY,
+  SHOPIFY_CURRENCY_CONVERSION_ROUNDING_REPLAY,
   copyMigrationSnapshot,
 } from "./support.ts";
 
-test("l'upgrade rilegge i bonifici Shopify arrotondati entro due centesimi", async () => {
-  const database = await temporaryDatabase("shopify_bank_transfer_rounding_replay");
+async function assertShopifyRoundingReplay(scenario: {
+  suffix: string;
+  method: string;
+  paidAmount: number;
+  migration: string;
+}) {
+  const database = await temporaryDatabase(scenario.suffix);
   const beforeReplay = await mkdtemp(
     path.join(os.tmpdir(), "hub-fatture-before-shopify-bank-rounding-"),
   );
@@ -66,13 +72,13 @@ test("l'upgrade rilegge i bonifici Shopify arrotondati entro due centesimi", asy
       await client.query(
         `INSERT INTO payments
            (order_id, external_payment_id, method, status, amount, raw_json)
-         VALUES ($1, 'payment', 'Bonifico Bancario', 'PAID', 1002, '{}')`,
-        [orderId],
+         VALUES ($1, 'payment', $2, 'PAID', $3, '{}')`,
+        [orderId, scenario.method, scenario.paidAmount],
       );
     });
 
     const applied = await runMigrations({ connectionString: database.connectionString });
-    assert.ok(applied.includes(SHOPIFY_BANK_TRANSFER_ROUNDING_REPLAY));
+    assert.ok(applied.includes(scenario.migration));
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
         (
@@ -93,4 +99,20 @@ test("l'upgrade rilegge i bonifici Shopify arrotondati entro due centesimi", asy
     await rm(beforeReplay, { recursive: true, force: true });
     await database.drop();
   }
-});
+}
+
+test("l'upgrade rilegge i bonifici Shopify arrotondati entro due centesimi", () =>
+  assertShopifyRoundingReplay({
+    suffix: "shopify_bank_transfer_rounding_replay",
+    method: "Bonifico Bancario",
+    paidAmount: 1002,
+    migration: SHOPIFY_BANK_TRANSFER_ROUNDING_REPLAY,
+  }));
+
+test("l'upgrade rilegge gli incassi Shopify Payments scostati dalla conversione", () =>
+  assertShopifyRoundingReplay({
+    suffix: "shopify_currency_conversion_rounding_replay",
+    method: "shopify_payments",
+    paidAmount: 999,
+    migration: SHOPIFY_CURRENCY_CONVERSION_ROUNDING_REPLAY,
+  }));

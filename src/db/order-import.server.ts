@@ -108,7 +108,9 @@ function reviewFingerprint(
     );
   const payments = input.payments
     .map((payment, index) => {
-      const { shopifyPaymentsFeeAmount: _, ...legacyPayment } = payment;
+      // La valuta di presentazione spiega soltanto l'arrotondamento dell'incasso: non è un dato
+      // fiscale e non deve aprire revisioni sugli ordini già osservati.
+      const { shopifyPaymentsFeeAmount: _, presentmentCurrency: __, ...legacyPayment } = payment;
       const feeAmount = shopifyPaymentsFeeAmounts[index]!;
       return {
         ...legacyPayment,
@@ -201,6 +203,7 @@ function orderAmounts(input: OrderInput) {
     linesReconciled &&
     paymentsReconciled({
       provider: input.provider,
+      currency: input.currency,
       grossAmount,
       payments: input.payments,
       paymentAmounts,

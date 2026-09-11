@@ -1,8 +1,29 @@
+import { PAYMENT_ROUNDING_TOLERANCE_CENTS } from "../order-payment-reconciliation.ts";
+
 /**
  * Frammenti SQL delle regole che il lock e la lettura devono applicare allo stesso modo.
  * Scritte due volte divergono in silenzio: la scheda offrirebbe un'azione che la transazione
  * poi rifiuta. Vivono qui una volta sola e le due query si compongono dagli stessi pezzi.
  */
+
+/**
+ * Scarto fra incasso Shopify e totale ordine riconosciuto come arrotondamento: bonifici o
+ * conversione valuta di Shopify Payments entro la tolleranza comune. Un documento Aruba emesso
+ * sull'incasso effettivo differisce dal fatturabile esattamente di questo importo.
+ */
+export const orderPaymentRoundingSql = (alias = "orders") => `coalesce((
+  SELECT CASE
+    WHEN ${alias}.provider = 'SHOPIFY'
+      AND bool_and(lower(rounding_payments.method) = 'shopify_payments'
+        OR lower(rounding_payments.method) LIKE '%bonifico%'
+        OR lower(rounding_payments.method) LIKE '%bank%transfer%')
+      AND abs(sum(rounding_payments.amount) - ${alias}.gross_amount)
+        BETWEEN 1 AND ${PAYMENT_ROUNDING_TOLERANCE_CENTS}
+    THEN (sum(rounding_payments.amount) - ${alias}.gross_amount)::integer
+  END
+  FROM payments AS rounding_payments
+  WHERE rounding_payments.order_id = ${alias}.id AND rounding_payments.status = 'PAID'
+), 0)`;
 
 /** Gli stati in cui una preparazione è ancora aperta e modificabile. */
 export const OPEN_BILLING_CASE_STATUSES = ["DRAFT", "READY", "NEEDS_REVIEW"] as const;

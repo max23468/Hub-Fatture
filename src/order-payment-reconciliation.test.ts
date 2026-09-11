@@ -6,11 +6,16 @@ import {
   paymentsReconciled,
 } from "./order-payment-reconciliation.ts";
 
-function shopifyPayment(amount: number, method = "Bonifico Bancario") {
+function shopifyPayment(
+  amount: number,
+  method = "Bonifico Bancario",
+  presentmentCurrency: string | null = null,
+) {
   return paymentsReconciled({
     provider: "SHOPIFY",
+    currency: "EUR",
     grossAmount: 10_000,
-    payments: [{ method, status: "PAID" }],
+    payments: [{ method, status: "PAID", presentmentCurrency }],
     paymentAmounts: [amount],
   });
 }
@@ -24,10 +29,21 @@ test("riconcilia soltanto l'arrotondamento positivo dei bonifici entro due cente
   assert.equal(shopifyPayment(10_002, "shopify_payments"), false);
 });
 
+test("riconcilia la conversione valuta di Shopify Payments entro due centesimi", () => {
+  assert.equal(shopifyPayment(9_999, "shopify_payments", "PLN"), true);
+  assert.equal(shopifyPayment(9_998, "shopify_payments", "PLN"), true);
+  assert.equal(shopifyPayment(10_002, "shopify_payments", "PLN"), true);
+  assert.equal(shopifyPayment(9_997, "shopify_payments", "PLN"), false);
+  assert.equal(shopifyPayment(9_999, "shopify_payments", "EUR"), false);
+  assert.equal(shopifyPayment(9_999, "shopify_payments"), false);
+  assert.equal(shopifyPayment(9_999, "paypal", "PLN"), false);
+});
+
 test("mantiene autorevole lo stato del pagamento eBay", () => {
   assert.equal(
     paymentsReconciled({
       provider: "EBAY",
+      currency: "EUR",
       grossAmount: 10_000,
       payments: [{ method: "eBay", status: "PAID" }],
       paymentAmounts: [8_500],

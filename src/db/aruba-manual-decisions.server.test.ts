@@ -1364,6 +1364,105 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
         trigger_status: "INVOICED",
       },
     );
+
+    const roundedCase = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json,
+           fiscal_profile_version)
+         VALUES ($1, '2026-08-10', 'EUR', 'NEEDS_REVIEW', $2, 1) RETURNING id::text`,
+        [customer.id, JSON.stringify(customerSnapshot)],
+      )
+    ).rows[0]!;
+    const roundedOrder = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO orders
+          (provider, external_account_id, external_order_id, display_number,
+           created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+           raw_snapshot_json, normalized_snapshot_json)
+         VALUES ('SHOPIFY', 'manual-link', 'converted-payment', '#1011', now(), now(),
+           '2026-08-10', 'EUR', 12346, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}', $3)
+         RETURNING id::text`,
+        [
+          customer.id,
+          roundedCase.id,
+          JSON.stringify({
+            orderReviewRequired: false,
+            deferredReviewRequired: false,
+            customerSnapshot,
+          }),
+        ],
+      )
+    ).rows[0]!;
+    await getPool().query(
+      `INSERT INTO payments (order_id, external_payment_id, method, status, amount, raw_json)
+       VALUES ($1, 'converted-payment', 'shopify_payments', 'PAID', 12345, '{}')`,
+      [roundedOrder.id],
+    );
+    const roundedXml = xml.replace("FPR 0001/26", "FPR 0011/26");
+    const roundedDigest = createHash("sha256").update(roundedXml).digest("hex");
+    const roundedPath = "aruba/manual/payment-rounding.xml";
+    await writeFile(path.join(sharedStorageRoot, roundedPath), roundedXml, { mode: 0o600 });
+    const roundedRemote = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO aruba_remote_documents
+          (environment, account_reference, remote_id, document_type, fiscal_year, series,
+           fiscal_number, document_date, total_amount, remote_status,
+           remote_status_observed_at, metadata_digest, xml_sha256)
+         VALUES ('MOCK', 'synthetic-aruba-account', 'payment-rounding', 'TD01', 2026,
+           'FPR', '11', '2026-08-10', 12345, 'DELIVERED', now(), repeat('b', 64), $1)
+         RETURNING id::text`,
+        [roundedDigest],
+      )
+    ).rows[0]!;
+    const roundedStorage = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+         VALUES ('ARUBA_XML', $1, $2, $3, 'application/xml') RETURNING id::text`,
+        [roundedPath, roundedDigest, Buffer.byteLength(roundedXml)],
+      )
+    ).rows[0]!;
+    await getPool().query(
+      `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+       VALUES ($1, $2, 'ARUBA_XML')`,
+      [roundedRemote.id, roundedStorage.id],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, order_id, billing_case_id)
+       VALUES ($1, 'MATCHED', 'AUTOMATIC', $2, $3, $4)`,
+      [roundedRemote.id, ARUBA_MATCHER_VERSION, roundedOrder.id, roundedCase.id],
+    );
+    const roundedDocument = await withTransaction((client) =>
+      materializeLatestOfficialXml(client, roundedRemote.id, true),
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT documents.total_amount, documents.source_total_amount,
+                  documents.difference_amount, documents.difference_reason,
+                  document_orders.amount, orders.trigger_status,
+                  billing_cases.status AS source_case_status
+           FROM documents
+           JOIN document_orders ON document_orders.document_id = documents.id
+           JOIN orders ON orders.id = document_orders.order_id
+           JOIN billing_cases ON billing_cases.id = $2
+           WHERE documents.id = $1`,
+          [roundedDocument, roundedCase.id],
+        )
+      ).rows[0],
+      {
+        total_amount: 12345,
+        source_total_amount: 12346,
+        difference_amount: -1,
+        difference_reason:
+          "Arrotondamento dell’incasso: il documento Aruba riporta −0,01 € rispetto al totale ordine",
+        amount: 12346,
+        trigger_status: "INVOICED",
+        source_case_status: "CLOSED",
+      },
+    );
   } finally {
     await closePool();
     await rm(sharedStorageRoot, { recursive: true, force: true });

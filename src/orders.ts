@@ -183,6 +183,10 @@ export const orderInputSchema = z
         method: z.string().trim().min(1),
         status: z.enum(["PAID", "PENDING", "REFUNDED"]),
         amount: z.string().trim().min(1),
+        presentmentCurrency: z
+          .string()
+          .regex(/^[A-Z]{3}$/)
+          .nullish(),
         shopifyPaymentsFeeAmount: z.string().trim().min(1).default("0.00"),
         paidAt: postgresTimestampSchema.nullable().default(null),
       }),
