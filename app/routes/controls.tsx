@@ -617,45 +617,57 @@ function ControlActions({
       </Form>
     );
   }
-  if (
-    control.kind === "ARUBA_ERRONEOUS_DOCUMENT" &&
-    metadata.transmissionAbsenceEligible &&
-    metadata.remoteDocumentId &&
-    metadata.metadataDigest &&
-    canApprove
-  ) {
-    return (
-      <Form className="control-action-form" method="post">
-        <input type="hidden" name="csrf" value={csrfToken} />
-        <input type="hidden" name="controlId" value={control.id} />
-        <input type="hidden" name="intent" value="confirm-aruba-transmission-absence" />
-        <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
-        <input type="hidden" name="metadataDigest" value={metadata.metadataDigest} />
-        <p>{copy.controls.transmissionAbsenceHelp}</p>
-        <label className="control-note">
-          {copy.controls.transmissionAbsenceReason}
-          <textarea name="reason" minLength={20} maxLength={500} required />
-        </label>
-        <label className="control-action-form__confirmation">
-          <input type="checkbox" name="confirmation" value="confirmed" required />
-          {copy.controls.confirmTransmissionAbsence}
-        </label>
-        <button className="button" type="submit">
-          <ShieldCheck aria-hidden="true" size={17} />
-          {copy.controls.closeTransmissionAbsence}
-        </button>
-        <Link className="button button--secondary" to={control.href}>
-          {control.primary_action}
-          <ExternalLink aria-hidden="true" size={17} />
-        </Link>
-      </Form>
-    );
-  }
-  return (
-    <Link className="button" to={control.href}>
+  return <ControlSourceAction control={control} canApprove={canApprove} csrfToken={csrfToken} />;
+}
+
+function ControlSourceAction({
+  control,
+  canApprove,
+  csrfToken,
+}: {
+  control: OperationalControl;
+  canApprove: boolean;
+  csrfToken: string;
+}) {
+  const metadata = control.metadata_json;
+  const sourceLink = (className: string) => (
+    <Link className={className} to={control.href}>
       {control.primary_action}
       <ExternalLink aria-hidden="true" size={17} />
     </Link>
+  );
+  // La chiusura come mai trasmesso è l'unica azione aggiuntiva sul documento errato.
+  if (
+    control.kind !== "ARUBA_ERRONEOUS_DOCUMENT" ||
+    !canApprove ||
+    !metadata.transmissionAbsenceEligible ||
+    !metadata.remoteDocumentId ||
+    !metadata.metadataDigest
+  ) {
+    return sourceLink("button");
+  }
+  return (
+    <Form className="control-action-form" method="post">
+      <input type="hidden" name="csrf" value={csrfToken} />
+      <input type="hidden" name="controlId" value={control.id} />
+      <input type="hidden" name="intent" value="confirm-aruba-transmission-absence" />
+      <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
+      <input type="hidden" name="metadataDigest" value={metadata.metadataDigest} />
+      <p>{copy.controls.transmissionAbsenceHelp}</p>
+      <label className="control-note">
+        {copy.controls.transmissionAbsenceReason}
+        <textarea name="reason" minLength={20} maxLength={500} required />
+      </label>
+      <label className="control-action-form__confirmation">
+        <input type="checkbox" name="confirmation" value="confirmed" required />
+        {copy.controls.confirmTransmissionAbsence}
+      </label>
+      <button className="button" type="submit">
+        <ShieldCheck aria-hidden="true" size={17} />
+        {copy.controls.closeTransmissionAbsence}
+      </button>
+      {sourceLink("button button--secondary")}
+    </Form>
   );
 }
 
