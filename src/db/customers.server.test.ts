@@ -228,6 +228,121 @@ test(
         false,
       );
 
+      {
+        // La preparazione aperta passa all'anagrafica con il codice fiscale già confermato.
+        const alignment = await import("./order-automatic-alignment.server.ts");
+        const snapshot = {
+          displayName: "Mario Rossi",
+          reviewRequired: false,
+          taxIdentifiers: [{ type: "CODICE_FISCALE", value: "VRDLGU80A01H501X" }],
+        };
+        const setup = await database.getPool().query<{
+          provisional_id: string;
+          fiscal_id: string;
+          case_id: string;
+          other_case_id: string;
+        }>(
+          `WITH provisional AS (
+           INSERT INTO customers
+             (kind, match_key, display_name, billing_address_json, source_confidence,
+              review_required)
+           VALUES ('PRIVATE_IT', 'order:provisional', 'Mario Rossi', '{}', 'AMBIGUOUS', true),
+                  ('PRIVATE_IT', 'order:other', 'Mario Rossi', '{}', 'AMBIGUOUS', true)
+           RETURNING id, match_key
+         ), fiscal AS (
+           INSERT INTO customers
+             (kind, match_key, display_name, billing_address_json, source_confidence,
+              review_required, tax_id_type, tax_id_normalized)
+           VALUES ('PRIVATE_IT', 'tax:CODICE_FISCALE::VRDLGU80A01H501X', 'Mario Rossi', '{}',
+                   'TAX_ID', false, 'CODICE_FISCALE', 'VRDLGU80A01H501X')
+           RETURNING id
+         ), source_record AS (
+           INSERT INTO customer_source_records
+             (customer_id, provider, external_customer_id, raw_snapshot_json)
+           SELECT fiscal.id, 'EBAY', 'buyer-ownership', '{}' FROM fiscal
+         ), billing AS (
+           INSERT INTO billing_cases
+             (customer_id, local_order_date, currency, status, customer_snapshot_json,
+              customer_corrected_at)
+           SELECT provisional.id, '2026-08-08', 'EUR', 'READY', $1::jsonb,
+                  CASE WHEN provisional.match_key = 'order:provisional' THEN now() END
+           FROM provisional
+           RETURNING id, customer_id
+         ), inserted_orders AS (
+           INSERT INTO orders
+             (provider, external_account_id, external_order_id, display_number,
+              created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+              payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+              raw_snapshot_json, normalized_snapshot_json)
+           SELECT 'EBAY', 'ownership', 'order-' || billing.id, 'OWN-' || billing.id, now(),
+                  now(), '2026-08-08', 'EUR', 3049, 'PAID', 'FULFILLED', 'GROUPED',
+                  billing.customer_id, billing.id, '{}',
+                  jsonb_build_object('externalCustomerId',
+                    CASE WHEN provisional.match_key = 'order:provisional'
+                      THEN 'buyer-ownership' ELSE 'buyer-without-fiscal-code' END)
+           FROM billing JOIN provisional ON provisional.id = billing.customer_id
+         )
+         SELECT (SELECT id::text FROM provisional WHERE match_key = 'order:provisional')
+                  AS provisional_id,
+                (SELECT id::text FROM fiscal) AS fiscal_id,
+                (SELECT billing.id::text FROM billing JOIN provisional
+                   ON provisional.id = billing.customer_id
+                 WHERE provisional.match_key = 'order:provisional') AS case_id,
+                (SELECT billing.id::text FROM billing JOIN provisional
+                   ON provisional.id = billing.customer_id
+                 WHERE provisional.match_key = 'order:other') AS other_case_id`,
+          [JSON.stringify(snapshot)],
+        );
+        const ids = setup.rows[0]!;
+
+        const realigned = await database.withTransaction((client) =>
+          alignment.realignOpenCaseCustomerOwnership(client, "customer-ownership-test"),
+        );
+        assert.equal(realigned, 1);
+        assert.deepEqual(
+          (
+            await database.getPool().query(
+              `SELECT billing_cases.customer_id::text AS case_customer,
+                    orders.customer_id::text AS order_customer,
+                    billing_cases.customer_snapshot_json AS snapshot,
+                    billing_cases.customer_corrected_at IS NOT NULL AS corrected,
+                    EXISTS (SELECT 1 FROM customers WHERE id = $2) AS provisional_exists,
+                    EXISTS (SELECT 1 FROM audit_events
+                      WHERE entity_id = billing_cases.id::text
+                        AND action = 'CUSTOMER_CORRECTED'
+                        AND metadata_json ->> 'automaticAlignment' = 'CUSTOMER_OWNERSHIP')
+                      AS audited
+             FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+             WHERE billing_cases.id = $1`,
+              [ids.case_id, ids.provisional_id],
+            )
+          ).rows[0],
+          {
+            case_customer: ids.fiscal_id,
+            order_customer: ids.fiscal_id,
+            snapshot,
+            corrected: true,
+            provisional_exists: false,
+            audited: true,
+          },
+        );
+        assert.notEqual(
+          (
+            await database
+              .getPool()
+              .query("SELECT customer_id::text FROM billing_cases WHERE id = $1", [
+                ids.other_case_id,
+              ])
+          ).rows[0].customer_id,
+          ids.fiscal_id,
+        );
+        assert.equal(
+          await database.withTransaction((client) =>
+            alignment.realignOpenCaseCustomerOwnership(client, "customer-ownership-repeat"),
+          ),
+          0,
+        );
+      }
       await database.closePool();
     } finally {
       const database = await import("./client.server.ts");

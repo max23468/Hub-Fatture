@@ -62,6 +62,7 @@ export const auditActions = [
   "ARUBA_READ_SESSION_ISSUED",
   "ARUBA_INVENTORY_COMPLETED",
   "ARUBA_DOCUMENT_MATCH_RESOLVED",
+  "ARUBA_SPLIT_INVOICE_MATCHED",
   "ARUBA_IDENTITY_CONFLICT_RESOLVED",
   "ARUBA_DOCUMENT_CONFIRMED_OUT_OF_SCOPE",
   "ARUBA_TRANSMISSION_ABSENCE_CONFIRMED",
@@ -129,7 +130,9 @@ export async function writeAudit(
         | "PHONE_MAPPER"
         | "PAYMENT_TIMESTAMP_ONLY"
         | "FULFILLMENT_ONLY"
-        | "REFUND_MAPPER";
+        | "REFUND_MAPPER"
+        | "REGISTRATION_NAME"
+        | "CUSTOMER_OWNERSHIP";
       credentialOperation: "CONFIGURED" | "ROTATED" | "REVOKED";
       scope: string;
       value: "PAID" | "FULFILLED";

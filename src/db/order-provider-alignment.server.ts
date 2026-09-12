@@ -3,6 +3,7 @@ import type pg from "pg";
 import {
   isEbayCareOfAddressMapperOnlyChange,
   isEbayPhoneMapperOnlyChange,
+  isEbayRegistrationNameMapperOnlyChange,
 } from "../order-source-alignment.ts";
 import { reconcileEbayCustomerAlignment } from "./order-ebay-customer-alignment.server.ts";
 import { reconcileEbayPaymentTimestampChange } from "./order-ebay-payment-alignment.server.ts";
@@ -54,6 +55,26 @@ export async function reconcileProviderOrderAlignment(
         alignment: "CARE_OF_ADDRESS",
       })),
     );
+    const registrationName = Boolean(
+      !input.documentIssued &&
+      input.fingerprintChanged &&
+      input.oldOrder?.billing_case_id &&
+      input.oldOrder.billing_case_customer_snapshot_json &&
+      !input.oldOrder.billing_case_customer_corrected &&
+      isEbayRegistrationNameMapperOnlyChange(
+        input.oldOrder.last_observed_snapshot_json,
+        input.normalizedSnapshot,
+      ) &&
+      (await reconcileEbayCustomerAlignment(client, {
+        caseId: input.oldOrder.billing_case_id,
+        orderId: input.orderId,
+        customerId: input.customerId,
+        customerSnapshot: input.normalizedSnapshot.customerSnapshot as Record<string, unknown>,
+        requestId: input.requestId,
+        clearExistingConflict: false,
+        alignment: "REGISTRATION_NAME",
+      })),
+    );
     const phoneMapper = Boolean(
       !input.documentIssued &&
       input.fingerprintChanged &&
@@ -75,6 +96,7 @@ export async function reconcileProviderOrderAlignment(
     return {
       refundMapper: await reconcileExistingEbayRefundMapperConflict(client, input),
       careOfAddress,
+      registrationName,
       phoneMapper,
       paymentTimestamp: await reconcileEbayPaymentTimestampChange(client, input),
       fulfillment: await reconcileFulfillmentChange(client, { ...input, provider: "EBAY" }),
@@ -84,6 +106,7 @@ export async function reconcileProviderOrderAlignment(
     return {
       refundMapper: false,
       careOfAddress: false,
+      registrationName: false,
       phoneMapper: false,
       paymentTimestamp: false,
       fulfillment: await reconcileFulfillmentChange(client, { ...input, provider: "SHOPIFY" }),
@@ -92,6 +115,7 @@ export async function reconcileProviderOrderAlignment(
   return {
     refundMapper: false,
     careOfAddress: false,
+    registrationName: false,
     phoneMapper: false,
     paymentTimestamp: false,
     fulfillment: false,

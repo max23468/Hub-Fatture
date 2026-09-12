@@ -449,6 +449,24 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(careOfWithExistingLine.customer.billingAddress.line2, "Scala A · c/o Anna Bianchi");
   assert.equal(careOfWithExistingLine.customer.shippingAddress.line2, "Scala A · c/o Anna Bianchi");
 
+  const registeredBuyer = structuredClone(privateOrder) as {
+    buyer: { buyerRegistrationAddress?: { fullName: string } };
+    fulfillmentStartInstructions: Array<{ shippingStep: { shipTo: { fullName: string } } }>;
+  };
+  registeredBuyer.fulfillmentStartInstructions[0]!.shippingStep.shipTo.fullName =
+    "Negozio Esempio c/o Rossi";
+  registeredBuyer.buyer.buyerRegistrationAddress = { fullName: "Mario Rossi" };
+  const registeredName = mapEbayOrder(registeredBuyer, "botCF");
+  assert.equal(registeredName.customer.displayName, "Mario Rossi");
+  assert.equal(registeredName.customer.firstName, "Mario");
+  assert.equal(registeredName.customer.lastName, "Rossi");
+  assert.equal(registeredName.customer.billingAddress.line2, "c/o Rossi");
+  registeredBuyer.buyer.buyerRegistrationAddress = { fullName: "Luigi Verdi" };
+  assert.equal(mapEbayOrder(registeredBuyer, "botCF").customer.displayName, "Negozio Esempio");
+  registeredBuyer.fulfillmentStartInstructions[0]!.shippingStep.shipTo.fullName = "Rossi Mario";
+  registeredBuyer.buyer.buyerRegistrationAddress = { fullName: "Mario Rossi" };
+  assert.equal(mapEbayOrder(registeredBuyer, "botCF").customer.displayName, "Rossi Mario");
+
   const swissOrder = structuredClone(privateOrder) as {
     buyer: { taxIdentifier: { issuingCountry: string } };
     fulfillmentStartInstructions: Array<{

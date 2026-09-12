@@ -15,7 +15,12 @@ export async function reconcileEbayCustomerAlignment(
     requestId: string;
     revisionId?: string;
     clearExistingConflict: boolean;
-    alignment: "EMAIL_ONLY" | "EMAIL_AND_MAPPER" | "CARE_OF_ADDRESS" | "PHONE_MAPPER";
+    alignment:
+      | "EMAIL_ONLY"
+      | "EMAIL_AND_MAPPER"
+      | "CARE_OF_ADDRESS"
+      | "PHONE_MAPPER"
+      | "REGISTRATION_NAME";
   },
 ) {
   const billingCase = await client.query<{
@@ -81,12 +86,14 @@ export async function reconcileEbayCustomerAlignment(
     );
   }
   const careOfAddress = input.alignment === "CARE_OF_ADDRESS";
+  const registrationName = input.alignment === "REGISTRATION_NAME";
+  const customerCorrected = careOfAddress || registrationName;
   await writeAudit(client, {
     actorType: "SYSTEM",
-    action: careOfAddress ? "CUSTOMER_CORRECTED" : "ORDER_SOURCE_REVIEWED",
+    action: customerCorrected ? "CUSTOMER_CORRECTED" : "ORDER_SOURCE_REVIEWED",
     eventClass: "CRITICAL",
-    entityType: careOfAddress ? "BILLING_CASE" : "ORDER",
-    entityId: careOfAddress ? input.caseId : input.orderId,
+    entityType: customerCorrected ? "BILLING_CASE" : "ORDER",
+    entityId: customerCorrected ? input.caseId : input.orderId,
     metadata: {
       billingCaseId: input.caseId,
       provider: "EBAY",
@@ -95,17 +102,23 @@ export async function reconcileEbayCustomerAlignment(
     },
     before: careOfAddress
       ? { customerSnapshot: "EBAY_NAME_WITH_CARE_OF" }
-      : { sourceReview: input.clearExistingConflict ? "OPEN" : "NOT_REQUIRED" },
+      : registrationName
+        ? { customerSnapshot: "EBAY_SHIPPING_NAME_NOT_CONFIRMED_BY_FISCAL_CODE" }
+        : { sourceReview: input.clearExistingConflict ? "OPEN" : "NOT_REQUIRED" },
     after: careOfAddress
       ? { customerSnapshot: "CARE_OF_MOVED_TO_ADDRESS_LINE_2" }
-      : { sourceReview: "ALIGNED_AUTOMATICALLY" },
+      : registrationName
+        ? { customerSnapshot: "EBAY_REGISTERED_NAME_CONFIRMED_BY_FISCAL_CODE" }
+        : { sourceReview: "ALIGNED_AUTOMATICALLY" },
     reason: careOfAddress
       ? "Riferimento c/o eBay spostato automaticamente dal nome alla seconda riga dell’indirizzo"
-      : input.alignment === "EMAIL_ONLY"
-        ? "Variazione limitata all’e-mail eBay, senza modifiche fiscali o d’ordine"
-        : phoneMapper
-          ? "Telefono eBay riletto dal campo phoneNumber del payload provider invariato"
-          : "Variazione eBay riallineata con profilo invariato e mapper anagrafico verificato",
+      : registrationName
+        ? "Intestazione eBay riletta dal nome registrato dell’acquirente confermato dal codice fiscale"
+        : input.alignment === "EMAIL_ONLY"
+          ? "Variazione limitata all’e-mail eBay, senza modifiche fiscali o d’ordine"
+          : phoneMapper
+            ? "Telefono eBay riletto dal campo phoneNumber del payload provider invariato"
+            : "Variazione eBay riallineata con profilo invariato e mapper anagrafico verificato",
     requestId: input.requestId,
   });
   await recomputeBillingCaseStatus(client, input.caseId);

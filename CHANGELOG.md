@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.32
+
+- Una fattura Aruba con nome e cognome invertiti rispetto all’ordine riconosce lo stesso destinatario: se coincidono anche città, Paese e totale e la fattura segue l’ordine di non più di sette giorni, il collegamento è automatico. La nuova versione del matcher rivaluta le fatture già acquisite.
+- Acconto e saldo emessi in Aruba come fatture distinte per lo stesso ordine vengono collegati automaticamente quando due o tre fatture sommano esattamente il totale, seguono l’ordine di non più di 62 giorni, confermano il destinatario nell’XML ufficiale, almeno una riporta «acconto» o «saldo» e la combinazione è l’unica possibile. Ogni rata resta un documento distinto; se manca ancora un XML, la preparazione resta da verificare per al massimo tre giorni mentre il file viene recuperato da Aruba.
+- Una preparazione aperta rimasta sul cliente provvisorio passa automaticamente, a ogni importazione ordini, all’anagrafica con il codice fiscale già presente nella preparazione; il cliente provvisorio rimasto senza collegamenti viene rimosso.
+- Per un privato eBay con codice fiscale, l’intestazione usa il nome registrato dell’acquirente quando il codice fiscale lo conferma e il nome di spedizione non viene riconosciuto; gli ordini aperti interessati vengono riletti e riallineati automaticamente.
+
 ## 1.3.31
 
 - Un incasso Shopify Payments in valuta estera che, per la conversione in euro, differisce di uno o due centesimi dal totale ordine non sospende più la preparazione: l’ordine resta riconciliato al totale pieno e l’importo fatturabile non cambia. L’upgrade rilegge da Shopify gli ordini già interessati.

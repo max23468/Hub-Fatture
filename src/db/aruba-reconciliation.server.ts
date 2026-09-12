@@ -558,9 +558,14 @@ export async function reconcileRemoteDocument(
   const actionableCandidateObserved = match.evaluations.some(
     (evaluation) => evaluation.compatible || evaluation.reviewable,
   );
-  if (previous.rows[0]?.method === "MANUAL" && previous.rows[0].status === "MATCHED") {
-    if (remote.status === "REJECTED" && previous.rows[0].billing_case_id) {
-      await recomputeBillingCaseStatus(client, previous.rows[0].billing_case_id, true);
+  // Una decisione manuale o una rata verificata insieme alle altre non si rivaluta da sola.
+  const previousMatch = previous.rows[0];
+  if (
+    previousMatch?.status === "MATCHED" &&
+    (previousMatch.method === "MANUAL" || previousMatch.signals_json.splitInvoice)
+  ) {
+    if (remote.status === "REJECTED" && previousMatch.billing_case_id) {
+      await recomputeBillingCaseStatus(client, previousMatch.billing_case_id, true);
     }
     return;
   }

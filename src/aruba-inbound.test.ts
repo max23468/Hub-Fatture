@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   canManuallyLinkCandidate,
   groupOrderCandidates,
+  hasSplitInvoiceMarker,
   isArubaAmountMismatchCandidate,
   isArubaExternalEvidenceCandidate,
   inventoryPageSchema,
@@ -12,8 +13,10 @@ import {
   remoteStatusTransition,
   selectAutomaticAmbiguousInvoiceMatches,
   selectOrderMatch,
+  selectSplitInvoiceMatches,
   type AmbiguousInvoiceCandidate,
   type RemoteInventoryDocument,
+  type SplitInvoicePart,
 } from "./aruba-inbound.ts";
 
 test("normalizza tutte le diciture elettroniche osservate nel pannello Aruba", () => {
@@ -367,6 +370,133 @@ test("nome, città e Paese univoci collegano una TD01 entro sette giorni", () =>
     selectOrderMatch({ ...locationRemote, xmlSha256: null }, [candidate]).status,
     "UNMATCHED",
   );
+});
+
+test("nome e cognome invertiti nell'XML Aruba restano lo stesso destinatario", () => {
+  const swappedRemote: RemoteInventoryDocument = {
+    ...remote,
+    documentDate: "2026-09-10",
+    recipientName: "Kowalski Jan",
+    recipientTaxId: "99999999999",
+    recipientTaxIdentifiers: [{ type: "PARTITA_IVA", countryCode: "PL", value: "99999999999" }],
+    recipientCountryCode: "PL",
+    recipientCity: "Gdansk",
+    recipientAddress: "00000 Morska 4 00000 Gdansk PL",
+    paymentMethod: "MP08",
+    xmlSha256: "b".repeat(64),
+  };
+  const candidate = {
+    id: "swapped-name",
+    provider: "SHOPIFY" as const,
+    displayNumber: "#9001",
+    localOrderDate: "2026-09-09",
+    billableAmount: swappedRemote.totalAmount,
+    recipientName: "Jan Kowalski",
+    recipientTaxIdentifiers: [],
+    recipientCountryCode: "PL",
+    recipientCity: "Gdansk",
+    recipientAddress: "Morska 4 06-440 Gdansk PL",
+  };
+
+  const matched = selectOrderMatch(swappedRemote, [candidate]);
+  assert.equal(matched.status, "MATCHED");
+  assert.equal(matched.evaluations[0]?.signals.recipient, true);
+  assert.equal(matched.evaluations[0]?.signals.exactRecipient, true);
+  assert.equal(
+    selectOrderMatch(swappedRemote, [{ ...candidate, recipientName: "Jan Kowalskii" }]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(swappedRemote, [{ ...candidate, recipientName: "Jan" }]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(swappedRemote, [{ ...candidate, recipientCity: "Warszawa" }]).status,
+    "UNMATCHED",
+  );
+});
+
+test("acconto e saldo univoci, verificati e dichiarati coprono lo stesso ordine", () => {
+  const order = {
+    id: "split-order",
+    provider: "SHOPIFY" as const,
+    displayNumber: "#9100",
+    localOrderDate: "2026-07-31",
+    billableAmount: 80_120,
+    recipientName: "Mario Rossi",
+    recipientTaxIdentifiers: [
+      { type: "CODICE_FISCALE" as const, countryCode: "IT", value: "RSSMRA80A01H501U" },
+    ],
+    recipientCountryCode: "IT",
+    recipientCity: "Milano",
+    recipientAddress: "Via Roma 1 20100 Milano IT",
+  };
+  const part = (
+    id: string,
+    documentDate: string,
+    totalAmount: number,
+    overrides: { splitMarker?: boolean; document?: Partial<RemoteInventoryDocument> } = {},
+  ): SplitInvoicePart => ({
+    remoteDocumentId: id,
+    splitMarker: overrides.splitMarker ?? false,
+    document: {
+      ...remote,
+      remoteId: `split-${id}`,
+      fiscalNumber: id,
+      documentDate,
+      totalAmount,
+      recipientCity: "Milano",
+      xmlSha256: "c".repeat(64),
+      ...overrides.document,
+    },
+  });
+  const deposit = part("101", "2026-08-05", 40_000);
+  const balance = part("102", "2026-09-03", 40_120, { splitMarker: true });
+
+  assert.deepEqual(selectSplitInvoiceMatches([order], [balance, deposit]), [
+    { orderId: "split-order", remoteDocumentIds: ["101", "102"], complete: true },
+  ]);
+  assert.deepEqual(
+    selectSplitInvoiceMatches([order], [deposit, { ...balance, splitMarker: false }]),
+    [],
+  );
+  assert.deepEqual(
+    selectSplitInvoiceMatches(
+      [order],
+      [part("101", "2026-08-05", 40_000, { document: { xmlSha256: null } }), balance],
+    ),
+    [{ orderId: "split-order", remoteDocumentIds: ["101", "102"], complete: false }],
+  );
+  assert.deepEqual(
+    selectSplitInvoiceMatches(
+      [order],
+      [
+        part("101", "2026-08-05", 40_000, {
+          document: { recipientName: "Luigi Verdi", recipientTaxIdentifiers: [] },
+        }),
+        balance,
+      ],
+    ),
+    [],
+  );
+  assert.deepEqual(
+    selectSplitInvoiceMatches([order], [deposit, balance, part("103", "2026-08-20", 40_000)]),
+    [],
+  );
+  assert.deepEqual(
+    selectSplitInvoiceMatches([order], [deposit, part("102", "2026-07-30", 40_120)]),
+    [],
+  );
+  assert.deepEqual(
+    selectSplitInvoiceMatches(
+      [order],
+      [deposit, part("102", "2026-10-02", 40_120, { splitMarker: true })],
+    ),
+    [],
+  );
+  assert.equal(hasSplitInvoiceMarker(["Città del Vaticano Monete SALDO"]), true);
+  assert.equal(hasSplitInvoiceMarker(["Acconto ordine"]), true);
+  assert.equal(hasSplitInvoiceMarker(["Saldatura", "Monete commemorative"]), false);
 });
 
 test("il totale Aruba sull'incasso arrotondato collega soltanto lo scarto riconosciuto", () => {
