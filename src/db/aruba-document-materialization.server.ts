@@ -234,6 +234,15 @@ async function materializeExternalInvoice(
   xml: string,
 ) {
   if (!remote.order_id || remote.match_status !== "MATCHED") return null;
+  if (remote.document_id) {
+    // Una rata è verificata insieme alle altre: il singolo XML non ne ricalcola l'ordine.
+    const splitInvoice = await client.query(
+      `SELECT 1 FROM document_orders
+       WHERE document_id = $1 AND document_kind = 'INVOICE' AND split_invoice`,
+      [remote.document_id],
+    );
+    if (splitInvoice.rowCount) return remote.document_id;
+  }
   const imported = acceptedInvoiceFromXml(xml, new Date().toISOString());
   const identity = acceptedDocumentFiscalIdentity(xml);
   const profile = await activeFiscalProfile(client);
@@ -425,59 +434,19 @@ async function materializeExternalInvoice(
     return documentId;
   }
   if (!documentId) {
-    const historicalCase = await client.query<{ id: string }>(
-      `INSERT INTO billing_cases
-        (customer_id, local_order_date, currency, status, customer_snapshot_json,
-         fiscal_profile_version)
-       VALUES ($1, $2, 'EUR', 'CLOSED', $3, $4) RETURNING id`,
-      [
-        currentOrder.customer_id,
-        imported.documentDate,
-        JSON.stringify(currentOrder.customer_snapshot),
-        profile.version,
-      ],
-    );
-    const snapshot = {
-      generatorVersion: 2,
-      ...imported.input,
-      sourceTotal: sourceTotalAmount,
-      total: imported.totalAmount,
-      difference: differenceAmount,
+    documentId = await insertHistoricalInvoice(client, {
+      customerId: currentOrder.customer_id,
+      customerSnapshot: currentOrder.customer_snapshot,
+      profile,
+      imported,
+      sourceTotalAmount,
+      differenceAmount,
       differenceReason,
-    };
-    const document = await client.query<{ id: string }>(
-      `INSERT INTO documents
-        (billing_case_id, source_billing_case_id, kind, status, document_type, series, fiscal_year, fiscal_number,
-         document_date, fiscal_profile_version, currency, total_amount, source_total_amount,
-         difference_amount, difference_reason, projection_sha256, approved_at, xml_sha256,
-         immutable_snapshot_json, fiscal_profile_snapshot_json, storage_object_id,
-         payment_status, payment_method, recipient_snapshot_json, origin,
-         identity_resolution_remote_document_id)
-       VALUES ($1, $2, 'INVOICE', 'APPROVED', 'TD01', $3, $4, $5, $6, $7, 'EUR',
-         $8, $9, $10, $11, $12, now(), $12, $13, $14, $15, 'PAID', $16, $17, 'ARUBA_HISTORY', $18)
-       RETURNING id`,
-      [
-        historicalCase.rows[0]!.id,
-        previousCaseId,
-        profile.profile.series,
-        imported.year,
-        imported.number,
-        imported.documentDate,
-        profile.version,
-        imported.totalAmount,
-        sourceTotalAmount,
-        differenceAmount,
-        differenceReason,
-        digest,
-        JSON.stringify(snapshot),
-        JSON.stringify(imported.profile),
-        storageObjectId,
-        imported.input.paymentMethod,
-        JSON.stringify(imported.input.recipient),
-        identityResolutionRemoteId,
-      ],
-    );
-    documentId = document.rows[0]!.id;
+      digest,
+      storageObjectId,
+      sourceCaseId: previousCaseId,
+      identityResolutionRemoteId,
+    });
   }
   const alreadyLinked = await client.query<{ order_id: string }>(
     `SELECT order_id FROM document_orders
@@ -487,37 +456,7 @@ async function materializeExternalInvoice(
   if (alreadyLinked.rows.some((row) => !matchedOrderIdSet.has(row.order_id))) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
-  await client.query(
-    `DELETE FROM document_lines
-     WHERE order_id = ANY($1::bigint[]) AND document_id IN (
-       SELECT id FROM documents WHERE kind = 'INVOICE' AND status = 'DRAFT'
-     )`,
-    [matchedOrderIds],
-  );
-  await client.query(
-    `UPDATE refunds SET applied_before_issue =
-       ((completed_at AT TIME ZONE 'Europe/Rome')::date < $2::date), updated_at = now()
-     WHERE order_id = ANY($1::bigint[]) AND status = 'COMPLETED' AND amount > 0
-       AND completed_at IS NOT NULL
-       AND (completed_at AT TIME ZONE 'Europe/Rome')::date <> $2::date`,
-    [matchedOrderIds, imported.documentDate],
-  );
-  await client.query(
-    `INSERT INTO jobs (type, payload_json)
-     SELECT 'process_refund', jsonb_build_object('refundId', refunds.id::text)
-     FROM refunds
-     WHERE refunds.order_id = ANY($1::bigint[]) AND refunds.status = 'COMPLETED'
-       AND refunds.amount > 0 AND NOT refunds.applied_before_issue
-       AND refunds.credit_document_id IS NULL
-     ON CONFLICT DO NOTHING`,
-    [matchedOrderIds],
-  );
-  await client.query(
-    `DELETE FROM document_orders
-     WHERE order_id = ANY($1::bigint[]) AND document_kind = 'INVOICE'
-       AND document_id IN (SELECT id FROM documents WHERE status = 'DRAFT')`,
-    [matchedOrderIds],
-  );
+  await releaseInvoicedOrdersFromDrafts(client, matchedOrderIds, imported.documentDate);
   await client.query(
     `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
      SELECT $1, 'INVOICE', source.order_id, source.amount
@@ -533,35 +472,7 @@ async function materializeExternalInvoice(
   if (previousCaseId) {
     await linkDocumentToSourcePreparation(client, documentId, previousCaseId);
   }
-  await client.query(
-    `UPDATE orders SET trigger_status = 'INVOICED', billing_case_id = NULL
-     WHERE id = ANY($1::bigint[])`,
-    [matchedOrderIds],
-  );
-  if (previousCaseId) {
-    const remaining = await client.query<{ count: string }>(
-      `SELECT count(*) FROM orders WHERE billing_case_id = $1`,
-      [previousCaseId],
-    );
-    if (Number(remaining.rows[0]!.count) === 0) {
-      await client.query(
-        `DELETE FROM documents WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'`,
-        [previousCaseId],
-      );
-      await client.query(
-        `UPDATE billing_cases SET status = 'CLOSED', revision = revision + 1, updated_at = now()
-         WHERE id = $1 AND status IN ('DRAFT', 'READY', 'NEEDS_REVIEW')`,
-        [previousCaseId],
-      );
-    } else {
-      await regenerateResidualInvoiceDraft(client, previousCaseId);
-      await client.query(
-        `UPDATE billing_cases SET revision = revision + 1, updated_at = now()
-         WHERE id = $1 AND status IN ('DRAFT', 'READY', 'NEEDS_REVIEW')`,
-        [previousCaseId],
-      );
-    }
-  }
+  await closeInvoicedSourcePreparation(client, matchedOrderIds, previousCaseId);
   await client.query(
     `UPDATE aruba_document_matches SET document_id = $2, billing_case_id =
        (SELECT billing_case_id FROM documents WHERE id = $2), updated_at = now()
@@ -572,6 +483,306 @@ async function materializeExternalInvoice(
     remote.id,
   ]);
   return documentId;
+}
+
+type ActiveFiscalProfile = NonNullable<Awaited<ReturnType<typeof activeFiscalProfile>>>;
+type AcceptedInvoice = ReturnType<typeof acceptedInvoiceFromXml>;
+type OfficialXml = NonNullable<Awaited<ReturnType<typeof loadLatestOfficialXml>>>;
+
+/** Archivia una TD01 esterna come documento approvato di una preparazione storica chiusa. */
+async function insertHistoricalInvoice(
+  client: pg.PoolClient,
+  input: {
+    customerId: string;
+    customerSnapshot: Record<string, unknown>;
+    profile: ActiveFiscalProfile;
+    imported: AcceptedInvoice;
+    sourceTotalAmount: number;
+    differenceAmount: number;
+    differenceReason: string | null;
+    digest: string;
+    storageObjectId: string;
+    sourceCaseId: string | null;
+    identityResolutionRemoteId: string | null;
+  },
+) {
+  const { imported, profile } = input;
+  const historicalCase = await client.query<{ id: string }>(
+    `INSERT INTO billing_cases
+      (customer_id, local_order_date, currency, status, customer_snapshot_json,
+       fiscal_profile_version)
+     VALUES ($1, $2, 'EUR', 'CLOSED', $3, $4) RETURNING id`,
+    [
+      input.customerId,
+      imported.documentDate,
+      JSON.stringify(input.customerSnapshot),
+      profile.version,
+    ],
+  );
+  const snapshot = {
+    generatorVersion: 2,
+    ...imported.input,
+    sourceTotal: input.sourceTotalAmount,
+    total: imported.totalAmount,
+    difference: input.differenceAmount,
+    differenceReason: input.differenceReason,
+  };
+  const document = await client.query<{ id: string }>(
+    `INSERT INTO documents
+      (billing_case_id, source_billing_case_id, kind, status, document_type, series, fiscal_year, fiscal_number,
+       document_date, fiscal_profile_version, currency, total_amount, source_total_amount,
+       difference_amount, difference_reason, projection_sha256, approved_at, xml_sha256,
+       immutable_snapshot_json, fiscal_profile_snapshot_json, storage_object_id,
+       payment_status, payment_method, recipient_snapshot_json, origin,
+       identity_resolution_remote_document_id)
+     VALUES ($1, $2, 'INVOICE', 'APPROVED', 'TD01', $3, $4, $5, $6, $7, 'EUR',
+       $8, $9, $10, $11, $12, now(), $12, $13, $14, $15, 'PAID', $16, $17, 'ARUBA_HISTORY', $18)
+     RETURNING id`,
+    [
+      historicalCase.rows[0]!.id,
+      input.sourceCaseId,
+      profile.profile.series,
+      imported.year,
+      imported.number,
+      imported.documentDate,
+      profile.version,
+      imported.totalAmount,
+      input.sourceTotalAmount,
+      input.differenceAmount,
+      input.differenceReason,
+      input.digest,
+      JSON.stringify(snapshot),
+      JSON.stringify(imported.profile),
+      input.storageObjectId,
+      imported.input.paymentMethod,
+      JSON.stringify(imported.input.recipient),
+      input.identityResolutionRemoteId,
+    ],
+  );
+  return document.rows[0]!.id;
+}
+
+/** Toglie gli ordini emessi dalle bozze locali e riallinea i rimborsi alla data del documento. */
+async function releaseInvoicedOrdersFromDrafts(
+  client: pg.PoolClient,
+  orderIds: string[],
+  documentDate: string,
+) {
+  await client.query(
+    `DELETE FROM document_lines
+     WHERE order_id = ANY($1::bigint[]) AND document_id IN (
+       SELECT id FROM documents WHERE kind = 'INVOICE' AND status = 'DRAFT'
+     )`,
+    [orderIds],
+  );
+  await client.query(
+    `UPDATE refunds SET applied_before_issue =
+       ((completed_at AT TIME ZONE 'Europe/Rome')::date < $2::date), updated_at = now()
+     WHERE order_id = ANY($1::bigint[]) AND status = 'COMPLETED' AND amount > 0
+       AND completed_at IS NOT NULL
+       AND (completed_at AT TIME ZONE 'Europe/Rome')::date <> $2::date`,
+    [orderIds, documentDate],
+  );
+  await client.query(
+    `INSERT INTO jobs (type, payload_json)
+     SELECT 'process_refund', jsonb_build_object('refundId', refunds.id::text)
+     FROM refunds
+     WHERE refunds.order_id = ANY($1::bigint[]) AND refunds.status = 'COMPLETED'
+       AND refunds.amount > 0 AND NOT refunds.applied_before_issue
+       AND refunds.credit_document_id IS NULL
+     ON CONFLICT DO NOTHING`,
+    [orderIds],
+  );
+  await client.query(
+    `DELETE FROM document_orders
+     WHERE order_id = ANY($1::bigint[]) AND document_kind = 'INVOICE'
+       AND document_id IN (SELECT id FROM documents WHERE status = 'DRAFT')`,
+    [orderIds],
+  );
+}
+
+/** Marca gli ordini come emessi e chiude la preparazione d'origine o ne rigenera il residuo. */
+async function closeInvoicedSourcePreparation(
+  client: pg.PoolClient,
+  orderIds: string[],
+  previousCaseId: string | null,
+) {
+  await client.query(
+    `UPDATE orders SET trigger_status = 'INVOICED', billing_case_id = NULL
+     WHERE id = ANY($1::bigint[])`,
+    [orderIds],
+  );
+  if (!previousCaseId) return;
+  const remaining = await client.query<{ count: string }>(
+    `SELECT count(*) FROM orders WHERE billing_case_id = $1`,
+    [previousCaseId],
+  );
+  if (Number(remaining.rows[0]!.count) === 0) {
+    await client.query(
+      `DELETE FROM documents WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'`,
+      [previousCaseId],
+    );
+    await client.query(
+      `UPDATE billing_cases SET status = 'CLOSED', revision = revision + 1, updated_at = now()
+       WHERE id = $1 AND status IN ('DRAFT', 'READY', 'NEEDS_REVIEW')`,
+      [previousCaseId],
+    );
+  } else {
+    await regenerateResidualInvoiceDraft(client, previousCaseId);
+    await client.query(
+      `UPDATE billing_cases SET revision = revision + 1, updated_at = now()
+       WHERE id = $1 AND status IN ('DRAFT', 'READY', 'NEEDS_REVIEW')`,
+      [previousCaseId],
+    );
+  }
+}
+
+/**
+ * Archivia acconto e saldo verificati come fatture distinte dello stesso ordine. Ogni rata
+ * conserva il proprio XML ufficiale e un collegamento parziale marcato; la preparazione si
+ * chiude soltanto dopo che l'intera combinazione è stata verificata nella stessa transazione.
+ */
+export async function materializeSplitInvoice(
+  client: pg.PoolClient,
+  selection: { orderId: string; remoteDocumentIds: string[] },
+) {
+  const profile = await activeFiscalProfile(client);
+  if (!profile) throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
+  await serializeOrderMutations(client);
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk -- Il predicato interpolato è una costante SQL interna senza input esterno.
+  const order = await client.query<{
+    id: string;
+    customer_id: string;
+    billing_case_id: string;
+    customer_snapshot: Record<string, unknown>;
+    billable_amount: number;
+  }>(
+    `SELECT orders.id::text, orders.customer_id::text, orders.billing_case_id::text,
+            orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
+            (orders.gross_amount - orders.deducted_shopify_payments_fee_amount)::integer
+              AS billable_amount
+     FROM orders
+     JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+     WHERE orders.id = $1
+       AND billing_cases.status IN ('DRAFT', 'READY', 'NEEDS_REVIEW')
+       AND orders.trigger_status NOT IN (
+         'INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'
+       )
+       AND (SELECT count(*) FROM orders AS case_orders
+            WHERE case_orders.billing_case_id = billing_cases.id) = 1
+       AND NOT EXISTS (SELECT 1 FROM refunds WHERE refunds.order_id = orders.id)
+       AND NOT EXISTS (
+         SELECT 1 FROM document_orders
+         JOIN documents ON documents.id = document_orders.document_id
+         WHERE document_orders.order_id = orders.id
+           AND document_orders.document_kind = 'INVOICE'
+           AND ${effectiveApprovedInvoiceSql("documents")}
+       )
+     FOR UPDATE OF orders, billing_cases`,
+    [selection.orderId],
+  );
+  const currentOrder = order.rows[0];
+  if (!currentOrder) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+  const importedAt = new Date().toISOString();
+  const parts: Array<{
+    remote: LockedRemoteMatch;
+    official: OfficialXml;
+    imported: AcceptedInvoice;
+  }> = [];
+  for (const remoteDocumentId of selection.remoteDocumentIds) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Le rate condividono il lock inventario e vengono verificate in ordine fiscale.
+    const remote = await lockedRemoteMatch(client, remoteDocumentId);
+    if (
+      !remote ||
+      remote.document_type !== "TD01" ||
+      !isEmissionConfirmed(remote.remote_status) ||
+      remote.match_status !== "UNMATCHED" ||
+      remote.match_method !== "NONE" ||
+      remote.order_id ||
+      remote.document_id
+    ) {
+      throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    }
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Ogni rata usa il proprio XML ufficiale verificato.
+    const official = await loadLatestOfficialXml(client, remoteDocumentId);
+    if (!official) throw new AppError("ARUBA_IMPORT_INVALID", 409);
+    const imported = acceptedInvoiceFromXml(official.xml, importedAt);
+    const identity = acceptedDocumentFiscalIdentity(official.xml);
+    if (
+      !remoteFiscalIdentityMatches(remote, identity) ||
+      !acceptedProfileMatches(profile.profile, identity)
+    ) {
+      throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
+    }
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- La numerazione va verificata prima di archiviare la rata.
+    const existing = await client.query(
+      `SELECT 1 FROM documents WHERE series = $1 AND fiscal_year = $2 AND fiscal_number = $3`,
+      [profile.profile.series, imported.year, imported.number],
+    );
+    if (existing.rowCount) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    parts.push({ remote, official, imported });
+  }
+  if (
+    parts.length < 2 ||
+    parts.reduce((sum, part) => sum + part.imported.totalAmount, 0) !== currentOrder.billable_amount
+  ) {
+    throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+  }
+  const lastDocumentDate = parts
+    .map((part) => part.imported.documentDate)
+    .toSorted()
+    .at(-1)!;
+  await releaseInvoicedOrdersFromDrafts(client, [currentOrder.id], lastDocumentDate);
+  const splitInvoice = {
+    orderId: currentOrder.id,
+    remoteDocumentIds: selection.remoteDocumentIds,
+  };
+  const documentIds: string[] = [];
+  for (const part of parts) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Ogni rata diventa un documento fiscale distinto nella stessa transazione.
+    const documentId = await insertHistoricalInvoice(client, {
+      customerId: currentOrder.customer_id,
+      customerSnapshot: currentOrder.customer_snapshot,
+      profile,
+      imported: part.imported,
+      sourceTotalAmount: part.imported.totalAmount,
+      differenceAmount: 0,
+      differenceReason: null,
+      digest: createHash("sha256").update(part.official.xml).digest("hex"),
+      storageObjectId: part.official.storageObjectId,
+      sourceCaseId: currentOrder.billing_case_id,
+      identityResolutionRemoteId: null,
+    });
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Il collegamento parziale segue il documento appena archiviato.
+    await client.query(
+      `INSERT INTO document_orders (document_id, document_kind, order_id, amount, split_invoice)
+       VALUES ($1, 'INVOICE', $2, $3, true)`,
+      [documentId, currentOrder.id, part.imported.totalAmount],
+    );
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Il file ufficiale resta legato alla propria rata.
+    await client.query(`UPDATE aruba_files SET document_id = $2 WHERE id = $1`, [
+      part.official.fileId,
+      documentId,
+    ]);
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Il match registra la combinazione verificata insieme al documento.
+    await client.query(
+      `UPDATE aruba_document_matches SET status = 'MATCHED', method = 'AUTOMATIC',
+         order_id = $2, document_id = $3,
+         billing_case_id = (SELECT billing_case_id FROM documents WHERE id = $3),
+         related_invoice_document_id = NULL, refund_ids = '{}',
+         signals_json = $4, updated_at = now()
+       WHERE remote_document_id = $1`,
+      [part.remote.id, currentOrder.id, documentId, JSON.stringify({ splitInvoice })],
+    );
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- L'origine segue la materializzazione della singola rata.
+    await client.query(
+      `UPDATE aruba_remote_documents SET origin = 'ARUBA_EXTERNAL' WHERE id = $1`,
+      [part.remote.id],
+    );
+    documentIds.push(documentId);
+  }
+  await closeInvoicedSourcePreparation(client, [currentOrder.id], currentOrder.billing_case_id);
+  return { sourceCaseId: currentOrder.billing_case_id, documentIds };
 }
 
 async function materializeExternalCreditNote(

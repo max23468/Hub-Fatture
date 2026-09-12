@@ -92,6 +92,19 @@ export async function snapshotTargetedTargets(run: ArubaSyncRunRow) {
                    AND ${arubaTransmissionAbsenceSql("remote", "absence_matches")}
                ))
              OR unresolved.remote_document_id IS NOT NULL
+             OR (
+               EXISTS (
+                 SELECT 1 FROM aruba_split_invoice_candidates AS split_invoice
+                 WHERE split_invoice.environment = remote.environment
+                   AND split_invoice.account_reference = remote.account_reference
+                   AND remote.id = ANY(split_invoice.remote_document_ids)
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM aruba_files AS split_files
+                 WHERE split_files.remote_document_id = remote.id
+                   AND split_files.kind = 'ARUBA_XML'
+               )
+             )
            )
          ORDER BY remote.provider_group_id`,
         [run.environment, run.account_reference],

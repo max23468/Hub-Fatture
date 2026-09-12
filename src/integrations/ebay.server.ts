@@ -20,7 +20,7 @@ import { importOrders } from "../db/order-import.server.ts";
 import { loadEbayProvisionalIdentityIds } from "../db/order-source-identity.server.ts";
 import { AppError } from "../errors.ts";
 import { splitTwoPartNameUsingFiscalCode } from "../italian-fiscal-code.ts";
-import { splitEbayCareOfRecipient } from "../ebay-recipient.ts";
+import { ebayFiscalRegistrationName, splitEbayCareOfRecipient } from "../ebay-recipient.ts";
 import {
   customerKindFromCountry,
   decimalToCents,
@@ -575,15 +575,23 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
       : [];
   const companyName = text(shipTo.companyName);
   const recipient = splitEbayCareOfRecipient(shipTo.fullName, address.addressLine2);
-  const fullName = recipient.fullName;
+  const privateItalianFiscalCode =
+    !companyName && declaredTaxType === "CODICE_FISCALE" && countryCode === "IT"
+      ? taxpayerId
+      : undefined;
+  const registeredName = privateItalianFiscalCode
+    ? ebayFiscalRegistrationName(
+        recipient.fullName,
+        record(buyer.buyerRegistrationAddress).fullName,
+        privateItalianFiscalCode,
+      )
+    : null;
+  const fullName = registeredName?.displayName ?? recipient.fullName;
   const privateItalianName =
-    !companyName &&
-    fullName &&
-    declaredTaxType === "CODICE_FISCALE" &&
-    countryCode === "IT" &&
-    taxpayerId
-      ? splitTwoPartNameUsingFiscalCode(fullName, taxpayerId)
-      : null;
+    registeredName ??
+    (fullName && privateItalianFiscalCode
+      ? splitTwoPartNameUsingFiscalCode(fullName, privateItalianFiscalCode)
+      : null);
   const buyerId = text(buyer.username) ?? text(buyer.userId);
   const lineItems = records(order.lineItems);
   const sourceIdentityIds = lineItems.map((line) => {

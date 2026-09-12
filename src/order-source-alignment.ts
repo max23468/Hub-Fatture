@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 
-import { splitEbayCareOfRecipient } from "./ebay-recipient.ts";
+import { ebayFiscalRegistrationName, splitEbayCareOfRecipient } from "./ebay-recipient.ts";
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -179,6 +179,87 @@ export function isEbayCareOfAddressMapperOnlyChange(
   return isDeepStrictEqual(
     withoutProviderAndMapperEvidence(previous),
     withoutProviderAndMapperEvidence(current),
+  );
+}
+
+function ebayRegistrationNameSource(snapshot: Record<string, unknown>) {
+  const source = record(snapshot.sourceSnapshot);
+  const buyer = record(source?.buyer);
+  const taxIdentifier = record(buyer?.taxIdentifier);
+  const instructions = Array.isArray(source?.fulfillmentStartInstructions)
+    ? source.fulfillmentStartInstructions
+    : [];
+  const shipTo = record(record(record(instructions[0])?.shippingStep)?.shipTo);
+  const address = record(shipTo?.contactAddress);
+  if (
+    taxIdentifier?.taxIdentifierType !== "CODICE_FISCALE" ||
+    typeof taxIdentifier.taxpayerId !== "string" ||
+    (taxIdentifier.issuingCountry ?? address?.countryCode) !== "IT" ||
+    (typeof shipTo?.companyName === "string" && shipTo.companyName.trim())
+  ) {
+    return null;
+  }
+  return ebayFiscalRegistrationName(
+    splitEbayCareOfRecipient(shipTo?.fullName, address?.addressLine2).fullName,
+    record(buyer?.buyerRegistrationAddress)?.fullName,
+    taxIdentifier.taxpayerId,
+  );
+}
+
+function customerWithoutNameProjection(value: unknown): unknown {
+  const customer = record(value);
+  if (!customer) return value;
+  return normalizeJsonValue(
+    Object.fromEntries(
+      Object.entries(customer).filter(
+        ([key]) => !["displayName", "firstName", "lastName", "canonicalProfile"].includes(key),
+      ),
+    ),
+  );
+}
+
+/**
+ * Riconosce soltanto la nuova intestazione di un privato eBay: a payload invariato, il nome
+ * registrato confermato dal codice fiscale sostituisce un nome di spedizione non riconosciuto.
+ */
+export function isEbayRegistrationNameMapperOnlyChange(
+  previous: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  if (previous.provider !== "EBAY" || current.provider !== "EBAY") return false;
+  if (!isDeepStrictEqual(previous.sourceSnapshot, current.sourceSnapshot)) return false;
+  const registered = ebayRegistrationNameSource(current);
+  const previousCustomer = record(previous.customer);
+  const currentCustomer = record(current.customer);
+  const previousSnapshot = record(previous.customerSnapshot);
+  const currentSnapshot = record(current.customerSnapshot);
+  if (
+    !registered ||
+    !previousCustomer ||
+    !currentCustomer ||
+    !previousSnapshot ||
+    !currentSnapshot ||
+    samePresentationText(previousSnapshot.displayName, registered.displayName) ||
+    currentCustomer.displayName !== registered.displayName ||
+    currentCustomer.firstName !== registered.firstName ||
+    currentCustomer.lastName !== registered.lastName ||
+    !samePresentationText(currentSnapshot.displayName, registered.displayName)
+  ) {
+    return false;
+  }
+  return (
+    isDeepStrictEqual(
+      customerWithoutNameProjection(previousCustomer),
+      customerWithoutNameProjection(currentCustomer),
+    ) &&
+    isDeepStrictEqual(
+      customerWithoutNameProjection(previousSnapshot),
+      customerWithoutNameProjection(currentSnapshot),
+    ) &&
+    isDeepStrictEqual(
+      withoutProviderAndMapperEvidence(previous),
+      withoutProviderAndMapperEvidence(current),
+    )
   );
 }
 

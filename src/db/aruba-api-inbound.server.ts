@@ -40,6 +40,7 @@ import { commitArubaApiInventoryPage } from "./aruba-api-canonical-page.server.t
 import { importArubaApiGroupFile } from "./aruba-api-group-file.server.ts";
 import { importArubaRemoteOfficialFileFromApi } from "./aruba-official-file-import.server.ts";
 import { upgradeCachedArubaMatcher } from "./aruba-matcher-upgrade.server.ts";
+import { reconcileArubaSplitInvoices } from "./aruba-split-invoices.server.ts";
 import { stageApiPage } from "./aruba-api-stage.server.ts";
 import { readVerifiedStorageObject, type StoredObjectEvidence } from "./storage-object.server.ts";
 import { getPool, withJoinedTransaction, withTransaction } from "./client.server.ts";
@@ -676,6 +677,7 @@ async function completeRun(runId: string) {
       `aruba-read:${run.environment}:${run.account_reference}`,
     ]);
     await upgradeCachedArubaMatcher(client, run.environment, run.account_reference);
+    await reconcileArubaSplitInvoices(client, run.environment, run.account_reference);
     await client.query(
       `UPDATE connections SET last_synced_at = now(),
          last_full_sync_at = CASE WHEN $3 THEN now() ELSE last_full_sync_at END,

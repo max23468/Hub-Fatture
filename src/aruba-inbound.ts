@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 15;
+export const ARUBA_MATCHER_VERSION = 16;
 export const ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES = ["TD01", "TD04"] as const;
 
 export const arubaRemoteStatusSchema = z.enum([
@@ -507,6 +507,15 @@ function differsByOneRepeatedVowel(left: string, right: string) {
   return false;
 }
 
+/** Aruba può registrare il cognome nel campo Nome: le stesse parole restano lo stesso nome. */
+function sameNameTokensInAnyOrder(left: string[], right: string[]) {
+  return (
+    left.length > 1 &&
+    left.length === right.length &&
+    left.toSorted().join(" ") === right.toSorted().join(" ")
+  );
+}
+
 function sameRecipientName(
   remoteName: string | null | undefined,
   candidateName: string | null | undefined,
@@ -516,6 +525,7 @@ function sameRecipientName(
   const candidateTokens = normalizedRecipientNameTokens(candidateName);
   if (!remoteTokens.length || remoteTokens.length !== candidateTokens.length) return false;
   if (remoteTokens.every((token, index) => token === candidateTokens[index])) return true;
+  if (sameNameTokensInAnyOrder(remoteTokens, candidateTokens)) return true;
   if (!sameForeignCountry || remoteTokens.length < 2) return false;
   const differences = remoteTokens.flatMap((token, index) =>
     token === candidateTokens[index] ? [] : [[token, candidateTokens[index]!] as const],
@@ -563,7 +573,12 @@ function evaluateOrderCandidate(
     sameForeignCountry,
   );
   const exactRecipient = Boolean(
-    remoteName && remoteName === normalizedRecipientName(candidate.recipientName),
+    remoteName &&
+    (remoteName === normalizedRecipientName(candidate.recipientName) ||
+      sameNameTokensInAnyOrder(
+        normalizedRecipientNameTokens(remote.recipientName),
+        normalizedRecipientNameTokens(candidate.recipientName),
+      )),
   );
   const remoteTaxIds = remote.recipientTaxIdentifiers.map((identifier) =>
     canonicalFiscalIdentity(identifier, remote.recipientCountryCode),
@@ -734,4 +749,137 @@ export function selectOrderMatch(
 
 export function isEmissionConfirmed(status: ArubaRemoteStatus): boolean {
   return status === "DELIVERED" || status === "NOT_DELIVERED";
+}
+
+export const ARUBA_SPLIT_INVOICE_WINDOW_DAYS = 62;
+const SPLIT_INVOICE_MAX_PARTS = 3;
+const SPLIT_INVOICE_MAX_ELIGIBLE_PARTS = 12;
+const SPLIT_INVOICE_MARKER = /(?:^|[^\p{L}])(?:ACCONT[OI]|SALD[OI])(?:[^\p{L}]|$)/iu;
+
+/** Una rata è distinguibile da una vendita separata solo con una dicitura esplicita. */
+export function hasSplitInvoiceMarker(descriptions: string[]): boolean {
+  return descriptions.some((description) => SPLIT_INVOICE_MARKER.test(description));
+}
+
+/** Chiavi normalizzate del nome in ogni disposizione, per preselezionare l'inventario. */
+export function recipientNameMatchKeys(value: string | null | undefined): string[] {
+  const tokens = normalizedRecipientNameTokens(value);
+  if (tokens.length > 4) return [tokens.join("")];
+  const permutations = (items: string[]): string[][] =>
+    items.length <= 1
+      ? [items]
+      : items.flatMap((item, index) =>
+          permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [
+            item,
+            ...rest,
+          ]),
+        );
+  return tokens.length ? [...new Set(permutations(tokens).map((items) => items.join("")))] : [];
+}
+
+export interface SplitInvoicePart {
+  remoteDocumentId: string;
+  document: RemoteInventoryDocument;
+  splitMarker: boolean;
+}
+
+export interface SplitInvoiceSelection {
+  orderId: string;
+  remoteDocumentIds: string[];
+  complete: boolean;
+}
+
+function splitInvoicePartIdentity(part: SplitInvoicePart, order: ArubaOrderCandidate) {
+  const { signals } = evaluateOrderCandidate(part.document, {
+    ...order,
+    billableAmount: part.document.totalAmount,
+  });
+  if (!signals.provider) return null;
+  if (part.document.xmlSha256) {
+    return signals.fiscalCode || (signals.exactRecipient && signals.city && signals.country)
+      ? "OFFICIAL"
+      : null;
+  }
+  return signals.exactRecipient ? "INVENTORY" : null;
+}
+
+function splitInvoiceSubsets(parts: SplitInvoicePart[], target: number) {
+  const subsets: SplitInvoicePart[][] = [];
+  const visit = (start: number, selected: SplitInvoicePart[], sum: number) => {
+    if (selected.length >= 2 && sum === target) subsets.push(selected);
+    if (selected.length === SPLIT_INVOICE_MAX_PARTS || sum >= target) return;
+    for (let index = start; index < parts.length; index += 1) {
+      const part = parts[index]!;
+      visit(index + 1, [...selected, part], sum + part.document.totalAmount);
+    }
+  };
+  visit(0, [], 0);
+  return subsets;
+}
+
+/**
+ * Riconosce acconto e saldo emessi come più TD01 per un solo ordine. La somma esatta non
+ * basta: ogni XML deve confermare il destinatario, almeno una rata deve dichiararsi tale e
+ * la combinazione deve restare l'unica fra ordini e documenti. Un XML ancora mancante
+ * produce soltanto una selezione incompleta, utile a trattenere la preparazione.
+ */
+export function selectSplitInvoiceMatches(
+  orders: ArubaOrderCandidate[],
+  parts: SplitInvoicePart[],
+): SplitInvoiceSelection[] {
+  const solutions = orders.flatMap((order) => {
+    if ((order.orderIds?.length ?? 1) !== 1 || order.refundTimingAmbiguous) return [];
+    const eligible = parts.filter((part) => {
+      const elapsedDays = daysAfter(part.document.documentDate, order.localOrderDate);
+      return (
+        part.document.documentType === "TD01" &&
+        elapsedDays >= 0 &&
+        elapsedDays <= ARUBA_SPLIT_INVOICE_WINDOW_DAYS &&
+        part.document.totalAmount > 0 &&
+        part.document.totalAmount < order.billableAmount &&
+        splitInvoicePartIdentity(part, order) !== null
+      );
+    });
+    if (eligible.length > SPLIT_INVOICE_MAX_ELIGIBLE_PARTS) return [];
+    return splitInvoiceSubsets(eligible, order.billableAmount).map((subset) => ({
+      order,
+      subset,
+    }));
+  });
+  const orderCounts = new Map<string, number>();
+  const partCounts = new Map<string, number>();
+  for (const { order, subset } of solutions) {
+    orderCounts.set(order.id, (orderCounts.get(order.id) ?? 0) + 1);
+    for (const part of subset) {
+      partCounts.set(part.remoteDocumentId, (partCounts.get(part.remoteDocumentId) ?? 0) + 1);
+    }
+  }
+  return solutions.flatMap(({ order, subset }) => {
+    if (
+      orderCounts.get(order.id) !== 1 ||
+      subset.some((part) => partCounts.get(part.remoteDocumentId) !== 1)
+    ) {
+      return [];
+    }
+    const official = subset.filter((part) => part.document.xmlSha256);
+    if (official.some((part) => splitInvoicePartIdentity(part, order) !== "OFFICIAL")) return [];
+    const complete = official.length === subset.length;
+    if (complete && !subset.some((part) => part.splitMarker)) return [];
+    return [
+      {
+        orderId: order.id,
+        remoteDocumentIds: subset
+          .toSorted(
+            (left, right) =>
+              left.document.documentDate.localeCompare(right.document.documentDate) ||
+              compareNumericText(
+                left.document.fiscalNumber ?? "",
+                right.document.fiscalNumber ?? "",
+              ),
+          )
+          .map((part) => part.remoteDocumentId),
+        complete,
+      },
+    ];
+  });
 }

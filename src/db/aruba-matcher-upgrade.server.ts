@@ -76,6 +76,14 @@ export async function reconcileCachedArubaMatcherUpgrade(
               AND coalesce((external_candidate -> 'signals' ->> 'total')::boolean, false)
               AND coalesce((external_candidate -> 'signals' ->> 'recipient')::boolean, false)
             )
+            OR (
+              external_candidate ->> 'issuedInvoiceDocumentId' IS NULL
+              AND coalesce((external_candidate -> 'signals' ->> 'provider')::boolean, false)
+              AND coalesce((external_candidate -> 'signals' ->> 'withinSevenDays')::boolean, false)
+              AND coalesce((external_candidate -> 'signals' ->> 'total')::boolean, false)
+              AND coalesce((external_candidate -> 'signals' ->> 'city')::boolean, false)
+              AND coalesce((external_candidate -> 'signals' ->> 'country')::boolean, false)
+            )
        ))
        AND (((remote.document_type = 'TD01' AND EXISTS (
          SELECT 1 FROM orders

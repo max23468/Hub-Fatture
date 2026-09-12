@@ -8,6 +8,7 @@ import {
   isEbayPaymentTimestampOnlyChange,
   isEbayPhoneMapperOnlyChange,
   isEbayRefundMapperOnlyChange,
+  isEbayRegistrationNameMapperOnlyChange,
   isFulfillmentOnlyChange,
 } from "./order-source-alignment.ts";
 
@@ -181,6 +182,88 @@ test("riconosce soltanto la correzione del telefono eBay serializzato come ogget
     }),
     false,
   );
+});
+
+test("riconosce soltanto il nome eBay registrato confermato dal codice fiscale", () => {
+  const sourceSnapshot = {
+    buyer: {
+      taxIdentifier: {
+        taxpayerId: "RSSMRA80A01H501U",
+        taxIdentifierType: "CODICE_FISCALE",
+        issuingCountry: "IT",
+      },
+      buyerRegistrationAddress: { fullName: "Mario Rossi" },
+    },
+    fulfillmentStartInstructions: [
+      {
+        shippingStep: {
+          shipTo: { fullName: "Negozio Esempio c/o Rossi", contactAddress: { countryCode: "IT" } },
+        },
+      },
+    ],
+  };
+  const taxIdentifiers = [{ type: "CODICE_FISCALE", value: "RSSMRA80A01H501U" }];
+  const previous = {
+    provider: "EBAY",
+    totalAmount: 1_000,
+    sourceSnapshot,
+    customer: {
+      displayName: "Negozio Esempio",
+      firstName: "Negozio",
+      lastName: "Esempio",
+      billingAddress: { line2: "c/o Rossi" },
+    },
+    customerSnapshot: {
+      displayName: "Negozio Esempio",
+      firstName: "Negozio",
+      lastName: "Esempio",
+      reviewRequired: false,
+      canonicalProfile: { displayName: "negozio esempio", taxIdentifiers },
+    },
+    reviewFingerprint: "etichetta-spedizione",
+  };
+  const current = {
+    ...previous,
+    customer: {
+      ...previous.customer,
+      displayName: "Mario Rossi",
+      firstName: "Mario",
+      lastName: "Rossi",
+    },
+    customerSnapshot: {
+      ...previous.customerSnapshot,
+      displayName: "Mario Rossi",
+      firstName: "Mario",
+      lastName: "Rossi",
+      canonicalProfile: { displayName: "mario rossi", taxIdentifiers },
+    },
+    reviewFingerprint: "nome-registrato",
+  };
+  const unverifiedSource = {
+    ...sourceSnapshot,
+    buyer: { ...sourceSnapshot.buyer, buyerRegistrationAddress: { fullName: "Luigi Verdi" } },
+  };
+
+  assert.equal(isEbayRegistrationNameMapperOnlyChange(previous, current), true);
+  assert.equal(
+    isEbayRegistrationNameMapperOnlyChange(previous, { ...current, totalAmount: 1_001 }),
+    false,
+  );
+  assert.equal(
+    isEbayRegistrationNameMapperOnlyChange(previous, {
+      ...current,
+      customerSnapshot: { ...current.customerSnapshot, reviewRequired: true },
+    }),
+    false,
+  );
+  assert.equal(
+    isEbayRegistrationNameMapperOnlyChange(
+      { ...previous, sourceSnapshot: unverifiedSource },
+      { ...current, sourceSnapshot: unverifiedSource },
+    ),
+    false,
+  );
+  assert.equal(isEbayRegistrationNameMapperOnlyChange(current, current), false);
 });
 
 test("riconosce soltanto il completamento deterministico di un rimborso eBay ambiguo", () => {

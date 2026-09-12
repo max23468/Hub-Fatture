@@ -276,8 +276,8 @@ export const billingCaseApprovalCandidateSql = (billingCaseAlias = "billing_case
     )}
 )`;
 
-/** Un possibile documento Aruba non ancora risolto trattiene la preparazione. */
-export const arubaPotentialMatchSql = `EXISTS (
+/** Un possibile documento Aruba non ancora risolto. */
+const arubaDocumentPotentialMatchSql = `EXISTS (
   SELECT 1
   FROM aruba_document_matches AS aruba_matches
   JOIN aruba_remote_documents AS aruba_remote
@@ -320,6 +320,19 @@ export const arubaPotentialMatchSql = `EXISTS (
       )
     )
 )`;
+
+/**
+ * Acconto e saldo ancora privi di XML ufficiale trattengono la preparazione per pochi giorni:
+ * il recupero mirato completa la verifica senza trasformare il segnale in un blocco permanente.
+ */
+const arubaSplitInvoiceHoldSql = `EXISTS (
+  SELECT 1 FROM aruba_split_invoice_candidates AS split_invoice_hold
+  WHERE split_invoice_hold.billing_case_id = billing_cases.id
+    AND split_invoice_hold.first_detected_at > now() - interval '3 days'
+)`;
+
+/** Un possibile documento o una combinazione di rate Aruba non risolta trattiene la preparazione. */
+export const arubaPotentialMatchSql = `(${arubaDocumentPotentialMatchSql} OR ${arubaSplitInvoiceHoldSql})`;
 
 /** Il primo fatto che impedisce di riattivare la preparazione, nell'ordine in cui va spiegato. */
 export const reactivationBlockerSql = `CASE

@@ -54,7 +54,10 @@ import { applySourceConflict } from "./order-source-conflict.server.ts";
 import { currentOrderSettings } from "./order-import-settings.server.ts";
 import { auditOrderActor, type OrderActor as Actor } from "./order-actor.server.ts";
 import { recordAutomaticCustomerIdentityException } from "./customer-identity-exceptions.server.ts";
-import { reconcileMapperCustomerCorrection } from "./order-automatic-alignment.server.ts";
+import {
+  realignOpenCaseCustomerOwnership,
+  reconcileMapperCustomerCorrection,
+} from "./order-automatic-alignment.server.ts";
 import { prepareCustomerInput } from "./order-customer-input.server.ts";
 import { reconcileEbayCustomerAlignment } from "./order-ebay-customer-alignment.server.ts";
 import { reconcileProviderOrderAlignment } from "./order-provider-alignment.server.ts";
@@ -703,6 +706,7 @@ async function importOne(
     emailOnlyAlignmentApplied ||
     providerAlignment.refundMapper ||
     providerAlignment.careOfAddress ||
+    providerAlignment.registrationName ||
     providerAlignment.phoneMapper ||
     providerAlignment.paymentTimestamp ||
     providerAlignment.fulfillment;
@@ -999,6 +1003,7 @@ export async function importOrders(
       // react-doctor-disable-next-line react-doctor/async-await-in-loop
       results.push(await importOne(client, order, trigger, shopifyPaymentFeeMode, actor));
     }
+    await realignOpenCaseCustomerOwnership(client, actor.requestId);
     const result: HistoryImportResult = {
       count: history?.count ?? orders.length,
       reviewRequired: history?.reviewRequired ?? 0,

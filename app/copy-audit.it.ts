@@ -28,6 +28,7 @@ export const auditActionLabels = {
   ARUBA_INVENTORY_COMPLETED: "Inventario Aruba completato",
   ARUBA_IDENTITY_CONFLICT_RESOLVED: "Conflitto fra documenti Aruba risolto",
   ARUBA_DOCUMENT_MATCH_RESOLVED: "Documento Aruba collegato manualmente",
+  ARUBA_SPLIT_INVOICE_MATCHED: "Acconto e saldo Aruba collegati automaticamente",
   ARUBA_DOCUMENT_CONFIRMED_OUT_OF_SCOPE: "Documento Aruba confermato fuori perimetro",
   ARUBA_TRANSMISSION_ABSENCE_CONFIRMED: "Documento Aruba confermato come mai trasmesso a SdI",
   ARUBA_PDF_COPIES_PRUNED: "Copie PDF Aruba ridondanti eliminate",

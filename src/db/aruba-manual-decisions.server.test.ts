@@ -1465,8 +1465,287 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
     );
   } finally {
     await closePool();
-    await rm(sharedStorageRoot, { recursive: true, force: true });
+  }
+});
+
+test("acconto e saldo Aruba verificati chiudono automaticamente la preparazione", async () => {
+  assert.ok(sharedDatabase);
+  const database = sharedDatabase;
+  const storageRoot = sharedStorageRoot;
+  process.env.APP_ENV = "test";
+  process.env.APP_BASE_URL = "http://localhost:8080";
+  process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
+  process.env.ARUBA_ACCOUNT_REFERENCE = "synthetic-aruba-account";
+  process.env.DATABASE_URL = database.connectionString;
+  process.env.DOCUMENT_STORAGE_ROOT = storageRoot;
+  try {
+    await runMigrations({ connectionString: database.connectionString });
+    const { materializeLatestOfficialXml } =
+      await import("./aruba-document-materialization.server.ts");
+    const acceptedXml = await readFile(
+      "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml",
+      "utf8",
+    );
+    const profile = fiscalProfileFromAcceptedInvoiceXml(acceptedXml, "2026-08-10T10:00:00Z");
+    const imported = acceptedInvoiceFromXml(acceptedXml, profile.numbering.approvedAt);
+    const customerSnapshot = {
+      displayName: "Mario Rossi",
+      reviewRequired: false,
+      taxIdentifiers: [{ type: "CODICE_FISCALE", countryCode: "IT", value: "RSSMRA80A01H501U" }],
+      billingAddress: {
+        line1: "Via Cliente 2",
+        postalCode: "00100",
+        city: "Roma",
+        countryCode: "IT",
+      },
+      canonicalProfile: {},
+    };
+    const setup = (
+      await getPool().query<{ case_id: string; order_id: string }>(
+        `WITH customer AS (
+           INSERT INTO customers
+             (kind, match_key, display_name, billing_address_json, source_confidence,
+              review_required)
+           VALUES ('PRIVATE_IT', 'split-invoice', 'Mario Rossi', '{}', 'TAX_ID', false)
+           RETURNING id
+         ), billing AS (
+           INSERT INTO billing_cases
+             (customer_id, local_order_date, currency, status, customer_snapshot_json,
+              fiscal_profile_version)
+           SELECT customer.id, '2026-07-31', 'EUR', 'READY', $1::jsonb, 1 FROM customer
+           RETURNING id, customer_id
+         )
+         INSERT INTO orders
+           (provider, external_account_id, external_order_id, display_number,
+            created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+            payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+            raw_snapshot_json, normalized_snapshot_json)
+         SELECT 'SHOPIFY', 'split-invoice', 'split-order', '#9100', now(), now(), '2026-07-31',
+                'EUR', 80120, 'PAID', 'FULFILLED', 'GROUPED', billing.customer_id, billing.id,
+                '{}', $2::jsonb
+         FROM billing
+         RETURNING billing_case_id::text AS case_id, id::text AS order_id`,
+        [
+          JSON.stringify(customerSnapshot),
+          JSON.stringify({
+            orderReviewRequired: false,
+            deferredReviewRequired: false,
+            customerSnapshot,
+          }),
+        ],
+      )
+    ).rows[0]!;
+    await getPool().query(
+      `INSERT INTO aruba_sync_sessions
+        (id, environment, account_reference, status, absolute_expires_at, completed_at,
+         source, is_full_scan)
+       VALUES ('00000000-0000-4000-8000-000000000333', 'MOCK',
+         'synthetic-aruba-account', 'COMPLETED', now() + interval '1 hour', now(),
+         'MANUAL', false)`,
+    );
+    const parts = [
+      { number: 31, date: "2026-08-05", amount: 40_000, description: "Monete commemorative" },
+      { number: 32, date: "2026-09-03", amount: 40_120, description: "Monete commemorative SALDO" },
+    ].map((part) => ({
+      ...part,
+      xml: generateFatturaXml(
+        profile,
+        {
+          ...imported.input,
+          documentDate: part.date,
+          paymentMethod: "MP05",
+          lines: [
+            {
+              orderId: setup.order_id,
+              description: part.description,
+              quantity: 1,
+              unitAmount: part.amount,
+            },
+          ],
+        },
+        { year: 2026, number: part.number },
+      ),
+    }));
+    const remoteIds: string[] = [];
+    for (const part of parts) {
+      const remote = (
+        await getPool().query<{ id: string }>(
+          `INSERT INTO aruba_remote_documents
+            (environment, account_reference, remote_id, document_type, fiscal_year, series,
+             fiscal_number, document_date, recipient_name_normalized,
+             recipient_tax_id_normalized, total_amount, remote_status,
+             remote_status_observed_at, metadata_digest)
+           VALUES ('MOCK', 'synthetic-aruba-account', $1, 'TD01', 2026, 'FPR', $2, $3,
+             'MARIOROSSI', 'RSSMRA80A01H501U', $4, 'DELIVERED', now(), repeat('c', 64))
+           RETURNING id::text`,
+          [`split-${part.number}`, String(part.number), part.date, part.amount],
+        )
+      ).rows[0]!;
+      remoteIds.push(remote.id);
+      await getPool().query(
+        `INSERT INTO aruba_document_matches
+          (remote_document_id, status, method, matcher_version, candidates_json)
+         VALUES ($1, 'UNMATCHED', 'NONE', $2, '[]')`,
+        [remote.id, ARUBA_MATCHER_VERSION],
+      );
+      await getPool().query(
+        `INSERT INTO aruba_remote_observations
+          (remote_document_id, sync_session_id, remote_status, stream, scan_ordinal,
+           page_ordinal, payload_digest, payload_json)
+         VALUES ($1, '00000000-0000-4000-8000-000000000333', 'DELIVERED',
+           'invoices:2026', 1, $2, repeat('d', 64), $3)`,
+        [
+          remote.id,
+          part.number,
+          JSON.stringify({
+            remoteId: `split-${part.number}`,
+            documentType: "TD01",
+            fiscalYear: 2026,
+            series: "FPR",
+            fiscalNumber: String(part.number),
+            documentDate: part.date,
+            recipientName: "MARIO ROSSI",
+            recipientTaxId: "RSSMRA80A01H501U",
+            recipientTaxIdentifiers: [],
+            recipientCountryCode: "IT",
+            recipientAddress: "Via Cliente 2 00100 Roma IT",
+            totalAmount: part.amount,
+            currency: "EUR",
+            status: "DELIVERED",
+            providerObservedAt: null,
+            xmlSha256: null,
+            orderReferences: [],
+          }),
+        ],
+      );
+    }
+    const storeOfficialXml = async (index: number) => {
+      const part = parts[index]!;
+      const digest = createHash("sha256").update(part.xml).digest("hex");
+      const relativePath = `aruba/split/${part.number}.xml`;
+      await mkdir(path.dirname(path.join(storageRoot, relativePath)), { recursive: true });
+      await writeFile(path.join(storageRoot, relativePath), part.xml, { mode: 0o600 });
+      const storage = (
+        await getPool().query<{ id: string }>(
+          `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+           VALUES ('ARUBA_XML', $1, $2, $3, 'application/xml') RETURNING id::text`,
+          [relativePath, digest, Buffer.byteLength(part.xml)],
+        )
+      ).rows[0]!;
+      await getPool().query(
+        `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+         VALUES ($1, $2, 'ARUBA_XML')`,
+        [remoteIds[index], storage.id],
+      );
+      await getPool().query(`UPDATE aruba_remote_documents SET xml_sha256 = $2 WHERE id = $1`, [
+        remoteIds[index],
+        digest,
+      ]);
+    };
+    const { reconcileArubaSplitInvoices } = await import("./aruba-split-invoices.server.ts");
+    const reconcile = () =>
+      withTransaction((client) =>
+        reconcileArubaSplitInvoices(client, "MOCK", "synthetic-aruba-account"),
+      );
+
+    await storeOfficialXml(1);
+    assert.deepEqual(await reconcile(), { materialized: 0, pending: 1 });
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT billing_cases.status, candidates.remote_document_ids::text[] AS remote_ids
+           FROM billing_cases
+           JOIN aruba_split_invoice_candidates AS candidates
+             ON candidates.billing_case_id = billing_cases.id
+           WHERE billing_cases.id = $1`,
+          [setup.case_id],
+        )
+      ).rows[0],
+      { status: "NEEDS_REVIEW", remote_ids: remoteIds },
+    );
+
+    await storeOfficialXml(0);
+    assert.deepEqual(await reconcile(), { materialized: 1, pending: 0 });
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT documents.fiscal_number, documents.total_amount,
+                  documents.source_total_amount, documents.difference_amount,
+                  documents.source_billing_case_id::text AS source_case_id,
+                  document_orders.amount, document_orders.split_invoice,
+                  matches.status, matches.method,
+                  matches.signals_json -> 'splitInvoice' ->> 'orderId' AS split_order_id
+           FROM aruba_document_matches AS matches
+           JOIN documents ON documents.id = matches.document_id
+           JOIN document_orders ON document_orders.document_id = documents.id
+           WHERE matches.remote_document_id = ANY($1::bigint[])
+           ORDER BY documents.fiscal_number`,
+          [remoteIds],
+        )
+      ).rows,
+      parts.map((part) => ({
+        fiscal_number: part.number,
+        total_amount: part.amount,
+        source_total_amount: part.amount,
+        difference_amount: 0,
+        source_case_id: setup.case_id,
+        amount: part.amount,
+        split_invoice: true,
+        status: "MATCHED",
+        method: "AUTOMATIC",
+        split_order_id: setup.order_id,
+      })),
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT orders.trigger_status, billing_cases.status AS case_status,
+                  (SELECT count(*)::integer FROM aruba_split_invoice_candidates) AS pending,
+                  EXISTS (SELECT 1 FROM audit_events
+                    WHERE action = 'ARUBA_SPLIT_INVOICE_MATCHED'
+                      AND entity_id = billing_cases.id::text) AS audited
+           FROM orders JOIN billing_cases ON billing_cases.id = $2
+           WHERE orders.id = $1`,
+          [setup.order_id, setup.case_id],
+        )
+      ).rows[0],
+      { trigger_status: "INVOICED", case_status: "CLOSED", pending: 0, audited: true },
+    );
+    assert.deepEqual(await reconcile(), { materialized: 0, pending: 0 });
+    const firstDocument = (
+      await getPool().query<{ document_id: string }>(
+        `SELECT document_id::text FROM aruba_document_matches WHERE remote_document_id = $1`,
+        [remoteIds[0]],
+      )
+    ).rows[0]!.document_id;
+    assert.equal(
+      await withTransaction((client) => materializeLatestOfficialXml(client, remoteIds[0]!, true)),
+      firstDocument,
+    );
+    const unmarkedDraft = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO documents
+          (billing_case_id, kind, status, document_type, series, document_date,
+           fiscal_profile_version, currency, total_amount, source_total_amount,
+           difference_amount, draft_version, projection_sha256, payment_status,
+           payment_method, recipient_snapshot_json)
+         VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', '2026-09-12', 1, 'EUR', 80120, 80120,
+           0, 1, repeat('5', 64), 'PAID', 'MP05', $2)
+         RETURNING id::text`,
+        [setup.case_id, JSON.stringify(customerSnapshot)],
+      )
+    ).rows[0]!;
+    await assert.rejects(
+      getPool().query(
+        `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+         VALUES ($1, 'INVOICE', $2, 80120)`,
+        [unmarkedDraft.id, setup.order_id],
+      ),
+      /Ordine già collegato a una fattura efficace o modificabile/,
+    );
+  } finally {
+    await closePool();
+    await rm(storageRoot, { recursive: true, force: true });
     await database.drop();
-    sharedDatabase = null;
   }
 });
