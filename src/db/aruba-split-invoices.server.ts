@@ -107,6 +107,8 @@ async function splitInvoiceParts(
            AND conflicts.account_reference = remote.account_reference
            AND (conflicts.existing_remote_document_id = remote.id
              OR conflicts.incoming_remote_id = remote.remote_id)
+           AND (conflicts.resolved_at IS NULL
+             OR conflicts.resolution_json ->> 'excludedId' = remote.id::text)
        )
      ORDER BY remote.document_date, remote.id`,
     [
@@ -236,9 +238,15 @@ export async function reconcileArubaSplitInvoices(
     }
   }
   await client.query(
-    `DELETE FROM aruba_split_invoice_candidates
-     WHERE environment = $1 AND account_reference = $2
-       AND NOT (billing_case_id = ANY($3::bigint[]))`,
+    `DELETE FROM aruba_split_invoice_candidates AS candidates
+     WHERE candidates.environment = $1 AND candidates.account_reference = $2
+       AND NOT (candidates.billing_case_id = ANY($3::bigint[]))
+       AND NOT EXISTS (
+         SELECT 1 FROM aruba_document_matches AS held
+         WHERE held.remote_document_id = ANY(candidates.remote_document_ids)
+           AND held.status = 'UNKNOWN_REMOTE_STATE'
+           AND held.signals_json @> '{"providerIdentityCollision":true}'
+       )`,
     [environment, accountReference, pendingCaseIds],
   );
   for (const caseId of new Set([

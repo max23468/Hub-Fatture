@@ -1619,10 +1619,10 @@ test("acconto e saldo Aruba verificati chiudono automaticamente la preparazione"
         ],
       );
     }
-    const storeOfficialXml = async (index: number) => {
+    const storeOfficialXml = async (index: number, remoteDocumentId = remoteIds[index]!) => {
       const part = parts[index]!;
       const digest = createHash("sha256").update(part.xml).digest("hex");
-      const relativePath = `aruba/split/${part.number}.xml`;
+      const relativePath = `aruba/split/${remoteDocumentId}.xml`;
       await mkdir(path.dirname(path.join(storageRoot, relativePath)), { recursive: true });
       await writeFile(path.join(storageRoot, relativePath), part.xml, { mode: 0o600 });
       const storage = (
@@ -1635,10 +1635,10 @@ test("acconto e saldo Aruba verificati chiudono automaticamente la preparazione"
       await getPool().query(
         `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
          VALUES ($1, $2, 'ARUBA_XML')`,
-        [remoteIds[index], storage.id],
+        [remoteDocumentId, storage.id],
       );
       await getPool().query(`UPDATE aruba_remote_documents SET xml_sha256 = $2 WHERE id = $1`, [
-        remoteIds[index],
+        remoteDocumentId,
         digest,
       ]);
     };
@@ -1664,7 +1664,110 @@ test("acconto e saldo Aruba verificati chiudono automaticamente la preparazione"
       { status: "NEEDS_REVIEW", remote_ids: remoteIds },
     );
 
-    await storeOfficialXml(0);
+    // Aruba espone l'acconto con l'ID canonico del gruppo API mentre l'inventario conserva la
+    // copia storica senza file: il conflitto trattiene la preparazione finché non si chiude.
+    const { remoteInventoryDocumentSchema, remoteMetadataDigest } =
+      await import("../aruba-inbound.ts");
+    const canonicalPayload = remoteInventoryDocumentSchema.parse({
+      remoteId: "group-31:canonical",
+      documentType: "TD01",
+      fiscalYear: 2026,
+      series: "FPR",
+      fiscalNumber: "31",
+      documentDate: parts[0]!.date,
+      recipientName: "MARIO ROSSI",
+      recipientTaxId: "RSSMRA80A01H501U",
+      recipientCountryCode: "IT",
+      recipientAddress: "Via Cliente 2 00100 Roma IT",
+      totalAmount: parts[0]!.amount,
+      status: "DELIVERED",
+    });
+    await getPool().query(
+      `UPDATE aruba_remote_documents SET provider_group_id = 'group-31' WHERE id = $1`,
+      [remoteIds[0]],
+    );
+    const canonicalId = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO aruba_remote_documents
+          (environment, account_reference, remote_id, document_type, fiscal_year, series,
+           fiscal_number, document_date, recipient_name_normalized,
+           recipient_tax_id_normalized, total_amount, remote_status,
+           remote_status_observed_at, metadata_digest, provider_group_id)
+         VALUES ('MOCK', 'synthetic-aruba-account', 'group-31:canonical', 'TD01', 2026, 'FPR',
+           '31', $1, 'MARIOROSSI', 'RSSMRA80A01H501U', $2, 'DELIVERED', now(), $3, 'group-31')
+         RETURNING id::text`,
+        [parts[0]!.date, parts[0]!.amount, remoteMetadataDigest(canonicalPayload)],
+      )
+    ).rows[0]!.id;
+    await getPool().query(
+      `INSERT INTO aruba_remote_observations
+        (remote_document_id, sync_session_id, remote_status, stream, scan_ordinal,
+         page_ordinal, payload_digest, payload_json)
+       VALUES ($1, '00000000-0000-4000-8000-000000000333', 'DELIVERED',
+         'invoices:2026', 2, 31, repeat('e', 64), $2)`,
+      [canonicalId, JSON.stringify(canonicalPayload)],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, signals_json, candidates_json)
+       VALUES ($1, 'UNKNOWN_REMOTE_STATE', 'NONE', $2,
+         '{"providerIdentityCollision":true,"identityCollisionCandidatesVerified":true}', '[]')`,
+      [canonicalId, ARUBA_MATCHER_VERSION],
+    );
+    await getPool().query(
+      `UPDATE aruba_document_matches SET status = 'UNKNOWN_REMOTE_STATE',
+         signals_json = '{"providerIdentityCollision":true,"identityCollisionCandidatesVerified":false}'
+       WHERE remote_document_id = $1`,
+      [remoteIds[0]],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_deduplication_conflicts
+        (environment, account_reference, existing_remote_document_id, incoming_remote_id,
+         collision_key, incoming_payload_digest, sync_session_id)
+       VALUES ('MOCK', 'synthetic-aruba-account', $1, 'group-31:canonical', 'FISCAL_IDENTITY',
+         repeat('f', 64), '00000000-0000-4000-8000-000000000333')`,
+      [remoteIds[0]],
+    );
+    await storeOfficialXml(0, canonicalId);
+    assert.deepEqual(await reconcile(), { materialized: 0, pending: 0 });
+    assert.equal(
+      (await getPool().query("SELECT status FROM billing_cases WHERE id = $1", [setup.case_id]))
+        .rows[0].status,
+      "NEEDS_REVIEW",
+    );
+    const { resolveArubaLegacyIdentityDuplicates } =
+      await import("./aruba-identity-resolution.server.ts");
+    assert.equal(
+      await withTransaction((client) =>
+        resolveArubaLegacyIdentityDuplicates(client, "MOCK", "synthetic-aruba-account"),
+      ),
+      1,
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT legacy.status AS legacy_status, legacy.method AS legacy_method,
+                  legacy.signals_json AS legacy_signals, canonical.status AS canonical_status,
+                  conflicts.resolution_json ->> 'selectedId' AS selected_id,
+                  conflicts.resolution_json ->> 'automaticLegacyDuplicate' AS automatic
+           FROM aruba_document_matches AS legacy
+           JOIN aruba_document_matches AS canonical ON canonical.remote_document_id = $2
+           JOIN aruba_deduplication_conflicts AS conflicts
+             ON conflicts.existing_remote_document_id = $1
+           WHERE legacy.remote_document_id = $1`,
+          [remoteIds[0], canonicalId],
+        )
+      ).rows[0],
+      {
+        legacy_status: "UNMATCHED",
+        legacy_method: "NONE",
+        legacy_signals: { legacyIdentityDuplicate: true },
+        canonical_status: "UNMATCHED",
+        selected_id: canonicalId,
+        automatic: "true",
+      },
+    );
+    const settledIds = [canonicalId, remoteIds[1]!];
     assert.deepEqual(await reconcile(), { materialized: 1, pending: 0 });
     assert.deepEqual(
       (
@@ -1680,7 +1783,7 @@ test("acconto e saldo Aruba verificati chiudono automaticamente la preparazione"
            JOIN document_orders ON document_orders.document_id = documents.id
            WHERE matches.remote_document_id = ANY($1::bigint[])
            ORDER BY documents.fiscal_number`,
-          [remoteIds],
+          [settledIds],
         )
       ).rows,
       parts.map((part) => ({
@@ -1715,11 +1818,11 @@ test("acconto e saldo Aruba verificati chiudono automaticamente la preparazione"
     const firstDocument = (
       await getPool().query<{ document_id: string }>(
         `SELECT document_id::text FROM aruba_document_matches WHERE remote_document_id = $1`,
-        [remoteIds[0]],
+        [canonicalId],
       )
     ).rows[0]!.document_id;
     assert.equal(
-      await withTransaction((client) => materializeLatestOfficialXml(client, remoteIds[0]!, true)),
+      await withTransaction((client) => materializeLatestOfficialXml(client, canonicalId, true)),
       firstDocument,
     );
     const unmarkedDraft = (

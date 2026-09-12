@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.33
+
+- Quando Aruba espone la stessa fattura prima con un identificativo storico e poi con quello canonico del gruppo API, il conflitto si chiude automaticamente escludendo la copia storica priva di file, documenti, invii o decisioni, purché numero, data, totale, stato e gruppo coincidano con la copia canonica dotata di XML ufficiale. Il doppione non blocca più le approvazioni e non apre un controllo di documento errato.
+- Una combinazione di acconto e saldo resta trattenuta finché una delle rate è in conflitto d’identità, e il recupero mirato dei file Aruba viene programmato anche per le rate ancora senza XML.
+- Il riallineamento automatico delle preparazioni all’anagrafica con codice fiscale viene eseguito a ogni sincronizzazione Shopify ed eBay, anche quando non ci sono ordini nuovi o modificati.
+
 ## 1.3.32
 
 - Una fattura Aruba con nome e cognome invertiti rispetto all’ordine riconosce lo stesso destinatario: se coincidono anche città, Paese e totale e la fattura segue l’ordine di non più di sette giorni, il collegamento è automatico. La nuova versione del matcher rivaluta le fatture già acquisite.

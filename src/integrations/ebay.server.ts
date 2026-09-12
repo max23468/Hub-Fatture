@@ -1200,9 +1200,8 @@ export async function syncEbayOrders(job?: ClaimedJob) {
     !currentContinuation,
   );
   if (job && !(await jobLeaseCurrent(job))) throw new AppError("CONFLICT_REVISION", 409);
-  if (orders.length) {
-    await importOrders(orders, { type: "SYSTEM", requestId: `ebay-sync:${end}` }, job);
-  }
+  // Anche una lettura senza variazioni riesegue i riallineamenti automatici delle preparazioni.
+  await importOrders(orders, { type: "SYSTEM", requestId: `ebay-sync:${end}` }, job);
   await writeCursor(
     "EBAY",
     continuation ? JSON.stringify(continuation) : end,

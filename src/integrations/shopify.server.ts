@@ -910,9 +910,8 @@ export async function syncShopifyOrders(job?: ClaimedJob) {
     parseShopifySyncContinuation(cursor.cursor),
   );
   if (job && !(await jobLeaseCurrent(job))) throw new AppError("CONFLICT_REVISION", 409);
-  if (orders.length) {
-    await importOrders(orders, { type: "SYSTEM", requestId: `shopify-sync:${end}` }, job);
-  }
+  // Anche una lettura senza variazioni riesegue i riallineamenti automatici delle preparazioni.
+  await importOrders(orders, { type: "SYSTEM", requestId: `shopify-sync:${end}` }, job);
   await writeCursor(
     "SHOPIFY",
     continuation ? JSON.stringify(continuation) : end,
