@@ -100,6 +100,17 @@ export async function scheduleDueSyncs() {
              AND ${arubaActionableCandidateSql("candidate", "remote")}
              AND (remote.historical_api_recovery_checked_at IS NULL
                OR remote.historical_api_recovery_checked_at <= now() - interval '30 days')
+         ) OR EXISTS (
+           SELECT 1
+           FROM aruba_split_invoice_candidates AS split_invoice
+           JOIN aruba_remote_documents AS split_remote
+             ON split_remote.id = ANY(split_invoice.remote_document_ids)
+           WHERE split_invoice.environment = CASE WHEN connections.environment = 'PRODUCTION'
+             THEN 'PRODUCTION' ELSE 'MOCK' END
+             AND split_invoice.account_reference = connections.account_reference
+             AND split_remote.provider_group_id IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM aruba_files files
+               WHERE files.remote_document_id = split_remote.id AND files.kind = 'ARUBA_XML')
          ))) AND NOT EXISTS (
            SELECT 1 FROM jobs
            WHERE type = 'aruba_refresh_nonterminal'

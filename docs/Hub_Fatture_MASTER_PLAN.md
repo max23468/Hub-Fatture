@@ -72,7 +72,12 @@ nel dettaglio; i collegamenti dall’inventario convergono sullo stesso controll
 Il titolare può risolvere localmente una collisione fra due documenti con XML ufficiali e stati
 noti, scegliendo quello con emissione confermata e motivando l’esclusione dell’altro dai
 collegamenti. La decisione è atomica, auditata e vincolata alle evidenze rilette dal server;
-non fonde ID, non annulla documenti e non sostituisce la gestione fiscale su Aruba. Se il numero è già occupato da un documento locale con l’XML ufficiale escluso, viene archiviato separatamente il documento scelto: la deroga di archivio è vincolata alla decisione e ai due hash anche nel database. Il precedente documento e i suoi collegamenti rimangono immutabili; il suo ordine non viene riaperto senza uno scarto autorevole. Il documento
+non fonde ID, non annulla documenti e non sostituisce la gestione fiscale su Aruba. Fa eccezione
+soltanto la stessa emissione esposta da Aruba prima con un ID storico e poi con l'ID canonico del
+gruppo API: se la copia storica non ha file, documenti, invii o decisioni e coincide con la copia
+canonica dotata di XML per gruppo provider, numero, data, totale e stato confermato, il conflitto si
+chiude automaticamente escludendo la copia storica dai collegamenti, con audit e senza aprire un
+controllo di documento errato. Se il numero è già occupato da un documento locale con l’XML ufficiale escluso, viene archiviato separatamente il documento scelto: la deroga di archivio è vincolata alla decisione e ai due hash anche nel database. Il precedente documento e i suoi collegamenti rimangono immutabili; il suo ordine non viene riaperto senza uno scarto autorevole. Il documento
 indicato come errato resta in un controllo dedicato finché non risulta scartato; l’attesa SdI
 dell’invio Hub collegato non apre un secondo controllo. Il titolare può chiuderlo confermando che
 il documento non è mai stato trasmesso soltanto se nasce da un dry-run riuscito senza upload o
@@ -659,7 +664,7 @@ Priorità per riconoscere l'identità:
 
 L'e-mail da sola non basta. Nei casi ambigui non accorpare: creare raggruppamenti separati e mostrare una possibile corrispondenza.
 
-Se la sorgente riconduce l'acquirente all'anagrafica il cui codice fiscale o partita IVA è già presente nella preparazione aperta di un solo ordine, a ogni importazione ordini HF sposta automaticamente ordine e preparazione dal cliente provvisorio a quell'anagrafica, senza modificarne fotografia o correzioni manuali, e rimuove il cliente provvisorio rimasto senza collegamenti. Il riallineamento non avviene se l'anagrafica ha già un'altra preparazione aperta per la stessa data.
+Se la sorgente riconduce l'acquirente all'anagrafica il cui codice fiscale o partita IVA è già presente nella preparazione aperta di un solo ordine, a ogni sincronizzazione ordini HF sposta automaticamente ordine e preparazione dal cliente provvisorio a quell'anagrafica, senza modificarne fotografia o correzioni manuali, e rimuove il cliente provvisorio rimasto senza collegamenti. Il riallineamento non avviene se l'anagrafica ha già un'altra preparazione aperta per la stessa data.
 
 Ordini Shopify ed eBay possono confluire nello stesso raggruppamento. Se una preparazione è già approvata e arriva un altro ordine dello stesso giorno, crearne una nuova senza modificare quella emessa.
 

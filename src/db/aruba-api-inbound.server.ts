@@ -39,6 +39,7 @@ import { waitForArubaApiReadSlot } from "./aruba-api-traffic.server.ts";
 import { commitArubaApiInventoryPage } from "./aruba-api-canonical-page.server.ts";
 import { importArubaApiGroupFile } from "./aruba-api-group-file.server.ts";
 import { importArubaRemoteOfficialFileFromApi } from "./aruba-official-file-import.server.ts";
+import { resolveArubaLegacyIdentityDuplicates } from "./aruba-identity-resolution.server.ts";
 import { upgradeCachedArubaMatcher } from "./aruba-matcher-upgrade.server.ts";
 import { reconcileArubaSplitInvoices } from "./aruba-split-invoices.server.ts";
 import { stageApiPage } from "./aruba-api-stage.server.ts";
@@ -676,6 +677,7 @@ async function completeRun(runId: string) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `aruba-read:${run.environment}:${run.account_reference}`,
     ]);
+    await resolveArubaLegacyIdentityDuplicates(client, run.environment, run.account_reference);
     await upgradeCachedArubaMatcher(client, run.environment, run.account_reference);
     await reconcileArubaSplitInvoices(client, run.environment, run.account_reference);
     await client.query(
