@@ -6,6 +6,14 @@ import { ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES } from "../aruba-inbound.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 
+function withoutCandidateEvidence<
+  T extends { orderIds: string[]; signals: Record<string, boolean> },
+>({ orderIds, signals, ...candidate }: T) {
+  void orderIds;
+  void signals;
+  return candidate;
+}
+
 const romeTodaySql = `(CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date`;
 
 test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi", async () => {
@@ -305,7 +313,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     const reviewableRemote = (
       await inventoryQueries.listRemoteDocuments({ attentionOnly: true })
     ).find((document) => document.remote_id === "weak-official-match");
-    assert.deepEqual(reviewableRemote?.candidates, [
+    assert.deepEqual(reviewableRemote?.candidates.map(withoutCandidateEvidence), [
       {
         id: order.rows[0]!.id,
         label: "#WEAK Shopify",
@@ -384,7 +392,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
         billingCaseId: cases.rows[2]!.id,
       })
     ).find((document) => document.remote_id === "weak-official-match");
-    assert.deepEqual(identityRemote?.candidates, [
+    assert.deepEqual(identityRemote?.candidates.map(withoutCandidateEvidence), [
       {
         id: order.rows[0]!.id,
         label: "#WEAK Shopify",
@@ -448,7 +456,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       })
     ).find((document) => document.remote_id === "weak-official-match");
     assert.equal(mismatchRemote?.amount_mismatch, true);
-    assert.deepEqual(mismatchRemote?.candidates, [
+    assert.deepEqual(mismatchRemote?.candidates.map(withoutCandidateEvidence), [
       {
         id: order.rows[0]!.id,
         label: "#WEAK Shopify",
@@ -459,6 +467,8 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
         differenceAmount: -100,
       },
     ]);
+    assert.equal(mismatchRemote?.candidates[0]?.signals.taxId, true);
+    assert.equal(mismatchRemote?.candidates[0]?.signals.total, false);
     const operationalControls = await import("./operational-controls.server.ts");
     await operationalControls.refreshOperationalControls();
     const mismatchControl = (
@@ -574,7 +584,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     ).find((document) => document.remote_id === "weak-official-match");
     assert.equal(externalEvidenceRemote?.external_evidence, true);
     assert.equal(externalEvidenceRemote?.requires_control, false);
-    assert.deepEqual(externalEvidenceRemote?.candidates, [
+    assert.deepEqual(externalEvidenceRemote?.candidates.map(withoutCandidateEvidence), [
       {
         id: order.rows[0]!.id,
         label: "#WEAK Shopify",

@@ -197,11 +197,19 @@ export async function listOrders(filters: {
             orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' AS customer_name,
             billing_cases.id AS billing_case_id, billing_cases.public_number AS case_number
      FROM orders
+     JOIN customers ON customers.id = orders.customer_id
      LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
      WHERE ($1::text IS NULL OR orders.display_number ILIKE $1
             OR orders.external_order_id ILIKE $1
             OR orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' ILIKE $1
             OR orders.normalized_snapshot_json #>> '{customerSnapshot,email}' ILIKE $1
+            OR customers.display_name ILIKE $1
+            OR customers.first_name ILIKE $1
+            OR customers.last_name ILIKE $1
+            OR customers.company_name ILIKE $1
+            OR customers.email ILIKE $1
+            OR customers.phone ILIKE $1
+            OR customers.tax_id_normalized ILIKE $1
             OR EXISTS (SELECT 1 FROM order_tax_identifiers
                        WHERE order_tax_identifiers.order_id = orders.id
                          AND (order_tax_identifiers.normalized_value ILIKE $1

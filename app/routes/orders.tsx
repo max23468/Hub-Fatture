@@ -23,6 +23,7 @@ import { privateRouteMeta } from "../metadata";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { getConfig } from "../../src/config.server.ts";
 import { arubaInventoryApprovalState } from "../../src/aruba-inventory.ts";
+import { errorCodeLabel } from "../../src/error-label.ts";
 import { getArubaInventoryHealth } from "../../src/db/aruba-inventory-health.server.ts";
 import {
   listBillingCases,
@@ -51,6 +52,23 @@ const preparationSortKeys = [
   "totale",
   "stato",
 ] as const;
+
+type MassApprovalReceipt = {
+  approved: string[];
+  failed: Array<[string, string]>;
+};
+
+function decodeMassApprovalReceipt(value: string | null): MassApprovalReceipt | null {
+  if (!value || value.length > 12_000) return null;
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as MassApprovalReceipt;
+    return Array.isArray(parsed.approved) && Array.isArray(parsed.failed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 export function meta({ error }: Route.MetaArgs) {
   return privateRouteMeta("orders", { error });
@@ -145,6 +163,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     approved: url.searchParams.get("approvati"),
     approvalErrors: url.searchParams.get("errori"),
     storagePending: url.searchParams.get("archiviazione"),
+    approvalReceipt: decodeMassApprovalReceipt(url.searchParams.get("esiti")),
   };
 }
 
@@ -175,9 +194,25 @@ export async function action({ request }: Route.ActionArgs) {
         form.get("emailModeVersion"),
         form.get("confirmArubaDowngrade") === "yes",
       );
-      return redirect(
-        `/ordini?vista=fatturare&approvati=${result.approved}&errori=${result.failed}&archiviazione=${result.storagePending}`,
-      );
+      const receipt: MassApprovalReceipt = { approved: [], failed: [] };
+      for (const outcome of result.outcomes) {
+        if (outcome.approved) {
+          receipt.approved.push(outcome.publicNumber);
+        } else {
+          receipt.failed.push([
+            outcome.publicNumber,
+            outcome.errorCode ?? "DOCUMENT_NOT_APPROVABLE",
+          ]);
+        }
+      }
+      const params = new URLSearchParams({
+        vista: "fatturare",
+        approvati: String(result.approved),
+        errori: String(result.failed),
+        archiviazione: String(result.storagePending),
+        esiti: Buffer.from(JSON.stringify(receipt)).toString("base64url"),
+      });
+      return redirect(`/ordini?${params.toString()}`);
     }
     if (form.get("intent") !== "import-fixture" || getConfig().APP_ENV === "production") {
       throw new Response("Azione non riconosciuta", { status: 400 });
@@ -826,6 +861,7 @@ function OrdersNotices({ data }: { data: OrdersPageData }) {
     approved,
     approvalErrors,
     storagePending,
+    approvalReceipt,
     view,
     inventoryApprovalState,
   } = data;
@@ -842,9 +878,26 @@ function OrdersNotices({ data }: { data: OrdersPageData }) {
         </p>
       ) : null}
       {approved !== null ? (
-        <p className="notice" role="status">
-          {copy.orders.massApprovalResult(approved, approvalErrors ?? "0", storagePending ?? "0")}
-        </p>
+        <div className="notice" role="status">
+          <p>
+            {copy.orders.massApprovalResult(approved, approvalErrors ?? "0", storagePending ?? "0")}
+          </p>
+          {approvalReceipt?.approved.length ? (
+            <p>{copy.orders.massApprovalApprovedItems(approvalReceipt.approved)}</p>
+          ) : null}
+          {approvalReceipt?.failed.length ? (
+            <ul>
+              {approvalReceipt.failed.map(([publicNumber, code]) => (
+                <li key={publicNumber}>
+                  <Link to={`/ordini?vista=fatturare&q=${encodeURIComponent(publicNumber)}`}>
+                    {copy.preparation.title(publicNumber)}
+                  </Link>
+                  {` · ${errorCodeLabel(code)}`}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
       {view === "fatturare" && inventoryApprovalState ? (
         <p className={inventoryApprovalState === "BLOCKED" ? "warning" : "notice"} role="status">

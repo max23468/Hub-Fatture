@@ -48,6 +48,8 @@ export interface RemoteDocument {
     externalEvidence: boolean;
     localAmount: number;
     differenceAmount: number;
+    orderIds: string[];
+    signals: Record<string, boolean>;
   }>;
   has_xml: boolean;
   identity_collision: boolean;
@@ -197,6 +199,8 @@ const remoteDocumentsSql = `
              'externalEvidence', ${arubaExternalEvidenceCandidateSql("candidate", "remote")},
              'localAmount', candidate_totals.local_amount,
              'differenceAmount', remote.total_amount - candidate_totals.local_amount
+             ,'orderIds', coalesce(candidate -> 'orderIds', jsonb_build_array(candidate ->> 'candidateId'))
+             ,'signals', coalesce(candidate -> 'signals', '{}'::jsonb)
            ) ORDER BY orders.id)
            FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS candidate
            JOIN orders ON orders.id::text = candidate ->> 'candidateId'
@@ -280,6 +284,32 @@ export async function searchRemoteDocuments(query: string, limit: number) {
   const normalizedQuery = query.trim();
   if (!normalizedQuery || containsNullByte(normalizedQuery)) {
     return { rows: [] as RemoteDocumentSearchResult[], total: 0 };
+  }
+  const exact = await getPool().query<RemoteDocumentSearchResult & { total_count: number }>(
+    `SELECT remote.id, remote.remote_id, remote.document_type, remote.fiscal_number,
+            remote.series, remote.document_date::text,
+            coalesce(matches.status, 'UNMATCHED') AS match_status,
+            count(*) OVER()::int AS total_count
+     FROM aruba_remote_documents AS remote
+     LEFT JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
+     WHERE remote.environment = $1 AND remote.account_reference = $2
+       AND (lower(remote.remote_id) = lower($3)
+         OR lower(coalesce(remote.provider_filename, '')) = lower($3)
+         OR lower(coalesce(remote.provider_sdi_id, '')) = lower($3)
+         OR lower(coalesce(remote.fiscal_number, '')) = lower($3)
+         OR lower(concat_ws(' ', remote.document_type, remote.series, remote.fiscal_number)) = lower($3))
+     ORDER BY remote.last_observed_at DESC, remote.id DESC
+     LIMIT $4`,
+    [environment(), accountReference(), normalizedQuery, limit],
+  );
+  if (exact.rows.length) {
+    return {
+      rows: exact.rows.map(({ total_count, ...row }) => {
+        void total_count;
+        return row;
+      }),
+      total: exact.rows[0]!.total_count,
+    };
   }
   const result = await getPool().query<RemoteDocumentSearchResult & { total_count: number }>(
     `SELECT remote.id, remote.remote_id, remote.document_type, remote.fiscal_number,

@@ -44,6 +44,8 @@ export interface OperationalControlMetadata {
     amountMismatch: boolean;
     localAmount: number;
     differenceAmount: number;
+    orderIds?: string[];
+    signals?: Record<string, boolean>;
   }>;
   remoteDocumentId?: string;
   metadataDigest?: string;
@@ -885,24 +887,29 @@ export async function refreshOperationalControls() {
          AND NOT (id = ANY($1::text[]))`,
       [currentIds],
     );
+    await client.query(
+      `UPDATE operational_controls_refresh_status
+       SET last_completed_at = now(), last_failed_at = NULL WHERE singleton`,
+    );
   });
   return candidates.length;
 }
 
 /** Legge la proiezione materializzata senza avviare una ricostruzione durante la navigazione. */
 export async function readOperationalControlSummary() {
-  const result = await getPool().query<{
-    open: number;
-    waiting: number;
-    blocking: number;
-    important: number;
-    ordinary: number;
-    technical: number;
-    acquisition: number;
-    processing: number;
-    document_generation: number;
-  }>(
-    `SELECT
+  const [result, refresh] = await Promise.all([
+    getPool().query<{
+      open: number;
+      waiting: number;
+      blocking: number;
+      important: number;
+      ordinary: number;
+      technical: number;
+      acquisition: number;
+      processing: number;
+      document_generation: number;
+    }>(
+      `SELECT
        count(*) FILTER (WHERE state = 'OPEN')::int AS open,
        count(*) FILTER (WHERE state = 'WAITING')::int AS waiting,
        count(*) FILTER (WHERE state = 'OPEN' AND severity = 'BLOCKING')::int AS blocking,
@@ -916,19 +923,35 @@ export async function readOperationalControlSummary() {
        count(*) FILTER (WHERE state = 'OPEN' AND category = 'TECHNICAL'
          AND metadata_json ->> 'area' = 'DOCUMENT_GENERATION')::int AS document_generation
      FROM operational_controls`,
+    ),
+    getPool().query<{ last_completed_at: string | null; last_failed_at: string | null }>(
+      `SELECT last_completed_at::text, last_failed_at::text
+       FROM operational_controls_refresh_status WHERE singleton`,
+    ),
+  ]);
+  return {
+    ...result.rows[0]!,
+    ...(refresh.rows[0] ?? { last_completed_at: null, last_failed_at: null }),
+  };
+}
+
+export async function recordOperationalControlsRefreshFailure() {
+  await getPool().query(
+    `UPDATE operational_controls_refresh_status SET last_failed_at = now() WHERE singleton`,
   );
-  return result.rows[0]!;
 }
 
 /** Legge la coda materializzata senza ricostruirla durante una richiesta HTTP. */
 export async function readOperationalControls(filters: {
-  state?: "OPEN" | "WAITING";
+  state?: "OPEN" | "WAITING" | "ALL";
   severity?: OperationalControlSeverity;
   kind?: string;
   origin?: OperationalControlOrigin;
   selectedId?: string;
   search?: string;
   cursor?: string;
+  due?: "OVERDUE" | "TODAY";
+  assigneeUsername?: string;
 }) {
   const state = filters.state ?? "OPEN";
   const search = filters.search?.trim() ?? "";
@@ -937,10 +960,9 @@ export async function readOperationalControls(filters: {
   const backwards = cursor?.direction === "previous";
   const rankSql = `CASE controls.severity
     WHEN 'BLOCKING' THEN 0 WHEN 'IMPORTANT' THEN 1 ELSE 2 END`;
-  const cursorSql = cursor
-    ? `AND (${rankSql}, controls.opened_at, controls.id) ${backwards ? "<" : ">"}
-         ($6::int, $7::timestamptz, $8::text)`
-    : "";
+  const cursorSql = `AND ($6::int IS NULL OR
+    (${rankSql}, controls.opened_at, controls.id) ${backwards ? "<" : ">"}
+      ($6::int, $7::timestamptz, $8::text))`;
   const orderSql = backwards
     ? `${rankSql} DESC, controls.opened_at DESC, controls.id DESC`
     : `${rankSql}, controls.opened_at, controls.id`;
@@ -953,19 +975,27 @@ export async function readOperationalControls(filters: {
     cursor?.severityRank ?? null,
     cursor?.openedAt ?? null,
     cursor?.id ?? null,
+    filters.due ?? null,
+    filters.assigneeUsername ?? null,
   ];
-  const pageParameters = cursor ? parameters : parameters.slice(0, 5);
+  const pageParameters = parameters;
   const [pageResult, totalResult, summary] = await Promise.all([
     getPool().query<OperationalControl>(
       `SELECT controls.*, assignee.username AS assignee_username
      FROM operational_controls AS controls
      LEFT JOIN users AS assignee ON assignee.id = controls.assignee_user_id
-     WHERE controls.state = $1
+     WHERE ($1 = 'ALL' OR controls.state = $1)
        AND ($2::text IS NULL OR controls.severity = $2)
        AND ($3::text IS NULL OR controls.kind = $3)
        AND ($4::text IS NULL OR controls.origin = $4)
        AND ($5::text IS NULL OR concat_ws(' ', controls.title, controls.detail,
              controls.source_id, controls.metadata_json::text) ILIKE $5)
+       AND ($9::text IS NULL
+         OR ($9 = 'OVERDUE' AND (controls.due_at AT TIME ZONE 'Europe/Rome')::date
+           < (now() AT TIME ZONE 'Europe/Rome')::date)
+         OR ($9 = 'TODAY' AND (controls.due_at AT TIME ZONE 'Europe/Rome')::date
+           = (now() AT TIME ZONE 'Europe/Rome')::date))
+       AND ($10::text IS NULL OR assignee.username = $10)
        ${cursorSql}
      ORDER BY ${orderSql}
      LIMIT ${CONTROLS_PAGE_SIZE + 1}`,
@@ -974,13 +1004,20 @@ export async function readOperationalControls(filters: {
     getPool().query<{ total: number }>(
       `SELECT count(*)::int AS total
        FROM operational_controls AS controls
-       WHERE controls.state = $1
+       LEFT JOIN users AS assignee ON assignee.id = controls.assignee_user_id
+       WHERE ($1 = 'ALL' OR controls.state = $1)
          AND ($2::text IS NULL OR controls.severity = $2)
          AND ($3::text IS NULL OR controls.kind = $3)
          AND ($4::text IS NULL OR controls.origin = $4)
          AND ($5::text IS NULL OR concat_ws(' ', controls.title, controls.detail,
-               controls.source_id, controls.metadata_json::text) ILIKE $5)`,
-      parameters.slice(0, 5),
+               controls.source_id, controls.metadata_json::text) ILIKE $5)
+         AND ($6::text IS NULL
+           OR ($6 = 'OVERDUE' AND (controls.due_at AT TIME ZONE 'Europe/Rome')::date
+             < (now() AT TIME ZONE 'Europe/Rome')::date)
+           OR ($6 = 'TODAY' AND (controls.due_at AT TIME ZONE 'Europe/Rome')::date
+             = (now() AT TIME ZONE 'Europe/Rome')::date))
+         AND ($7::text IS NULL OR assignee.username = $7)`,
+      [...parameters.slice(0, 5), ...parameters.slice(8)],
     ),
     readOperationalControlSummary(),
   ]);
@@ -997,7 +1034,7 @@ export async function readOperationalControls(filters: {
             `SELECT controls.*, assignee.username AS assignee_username
              FROM operational_controls AS controls
              LEFT JOIN users AS assignee ON assignee.id = controls.assignee_user_id
-             WHERE controls.id = $1 AND controls.state = $2`,
+             WHERE controls.id = $1 AND ($2 = 'ALL' OR controls.state = $2)`,
             [filters.selectedId, state],
           )
         ).rows[0]
