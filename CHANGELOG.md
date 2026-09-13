@@ -10,6 +10,7 @@
 - La ricerca esatta dei documenti Aruba evita il confronto testuale esteso quando trova un identificativo univoco. Il benchmark copre ricerca globale, inventario e ricostruzione dei Controlli su 6.000 documenti remoti sintetici con budget verificati automaticamente.
 - Il dominio fiscale, la proiezione dei Controlli, le configurazioni e gli stili sono separati per responsabilità; duplicazioni e configurazioni residue non consumate sono state rimosse.
 - La pubblicazione dispone di un comando coordinato, esegue in parallelo i gate locali indipendenti, riusa dopo lo squash soltanto controlli GitHub verificati su un albero equivalente e ricrea in Production i soli servizi interessati quando l’infrastruttura non cambia.
+- L’immagine Production usa uno snapshot Debian aggiornato e pin mirati per le correzioni di sicurezza di gzip, PCRE2, SQLite e Perl rilevate dal gate del candidato.
 
 ## 1.3.33
 
