@@ -136,11 +136,11 @@ test("conserva il target di ogni superficie CI indipendente", () => {
     runtime,
   );
   assert.equal(targets.CI, runtime);
-  assert.equal(targets["PostgreSQL e migrazioni"], database);
-  assert.equal(targets["Audit dipendenze"], database);
-  assert.equal(targets["Contract test provider"], provider);
-  assert.equal(targets["E2E Chromium"], runtime);
-  assert.equal(targets["E2E WebKit"], runtime);
+  assert.equal(targets["CI (database)"], database);
+  assert.equal(targets["CI (security/data)"], database);
+  assert.equal(targets["CI (provider)"], provider);
+  assert.equal(targets["CI (E2E Chromium)"], runtime);
+  assert.equal(targets["CI (E2E WebKit)"], runtime);
 });
 
 test("un backend runtime non attende un WebKit che la matrice non crea", () => {
@@ -155,8 +155,8 @@ test("un backend runtime non attende un WebKit che la matrice non crea", () => {
     ],
     backend,
   );
-  assert.equal(targets["E2E Chromium"], backend);
-  assert.equal("E2E WebKit" in targets, false);
+  assert.equal(targets["CI (E2E Chromium)"], backend);
+  assert.equal("CI (E2E WebKit)" in targets, false);
 });
 
 test("i commit con CI monolitica non richiedono job storici inesistenti", () => {
@@ -178,18 +178,17 @@ test("i commit con CI monolitica non richiedono job storici inesistenti", () => 
     candidate,
   );
   assert.equal(targets.CI, legacy);
-  assert.equal("PostgreSQL e migrazioni" in targets, false);
-  assert.equal("Contract test provider" in targets, false);
-  assert.equal("E2E Chromium" in targets, false);
-  assert.equal("E2E WebKit" in targets, false);
+  assert.equal(targets["CI (database)"], legacy);
+  assert.equal(targets["CI (provider)"], legacy);
+  assert.equal(targets["CI (E2E Chromium)"], legacy);
 });
 
-test("un gate di superficie applicabile non può risultare saltato", () => {
+test("i gate condizionali usano il risultato aggregato CI", () => {
   const state = checkConclusions(
-    [{ ...success("PostgreSQL e migrazioni"), conclusion: "skipped" }],
-    ["PostgreSQL e migrazioni"],
+    [success("CI")],
+    ["CI (database)", "CI (provider)"],
   );
-  assert.deepEqual(state, { pending: [], failed: ["PostgreSQL e migrazioni"] });
+  assert.deepEqual(state, { pending: [], failed: [] });
 });
 
 test("la prima distribuzione analizza tutta la storia first-parent", () => {
@@ -242,6 +241,6 @@ test("la baseline vuota conserva i gate runtime di un commit precedente", async 
   assert.equal(targets.CI, runtime);
   assert.equal(targets.Foundation, candidate);
   assert.equal(targets["Foundation (immagine)"], runtime);
-  assert.equal(targets["E2E Chromium"], runtime);
-  assert.equal(targets["E2E WebKit"], runtime);
+  assert.equal(targets["CI (E2E Chromium)"], runtime);
+  assert.equal(targets["CI (E2E WebKit)"], runtime);
 });

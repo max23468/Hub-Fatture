@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { classifyFiles } from "./change-impact.mjs";
+import { findReusableValidation } from "./check-reuse.mjs";
 
 const FOUNDATION_IMAGE = "Foundation (immagine)";
 const REQUIRED = [
@@ -13,6 +14,11 @@ const REQUIRED = [
 ];
 const CHECK_CONTEXT_BY_TARGET = {
   [FOUNDATION_IMAGE]: "Foundation",
+  "CI (database)": "CI",
+  "CI (security/data)": "CI",
+  "CI (provider)": "CI",
+  "CI (E2E Chromium)": "CI",
+  "CI (E2E WebKit)": "CI",
 };
 const SURFACE_BY_CHECK = {
   CI: "standard",
@@ -21,19 +27,11 @@ const SURFACE_BY_CHECK = {
   "react-doctor": "react",
 };
 const CONDITIONAL_SURFACE_BY_CHECK = {
-  "PostgreSQL e migrazioni": "database",
-  "Audit dipendenze": "securityData",
-  "Contract test provider": "provider",
-  "E2E Chromium": "e2e",
-  "E2E WebKit": "e2eWebkit",
-};
-const CONDITIONAL_CHECKS = new Set(Object.keys(CONDITIONAL_SURFACE_BY_CHECK));
-const WORKFLOW_MARKER_BY_CHECK = {
-  "PostgreSQL e migrazioni": "name: PostgreSQL e migrazioni",
-  "Audit dipendenze": "name: Audit dipendenze",
-  "Contract test provider": "name: Contract test provider",
-  "E2E Chromium": '"label":"Chromium"',
-  "E2E WebKit": '"label":"WebKit"',
+  "CI (database)": "database",
+  "CI (security/data)": "securityData",
+  "CI (provider)": "provider",
+  "CI (E2E Chromium)": "e2e",
+  "CI (E2E WebKit)": "e2eWebkit",
 };
 
 export function checkConclusions(checkRuns, required = REQUIRED) {
@@ -49,10 +47,7 @@ export function checkConclusions(checkRuns, required = REQUIRED) {
   for (const name of required) {
     const check = latest.get(CHECK_CONTEXT_BY_TARGET[name] ?? name);
     if (!check || check.status !== "completed") pending.push(name);
-    else if (
-      !["success", "neutral", "skipped"].includes(check.conclusion) ||
-      (CONDITIONAL_CHECKS.has(name) && check.conclusion === "skipped")
-    )
+    else if (!["success", "neutral", "skipped"].includes(check.conclusion))
       failed.push(name);
   }
   return { pending, failed };
@@ -65,9 +60,7 @@ export function selectCheckTargets(entries, candidate, required = REQUIRED) {
       if (entry.impact[SURFACE_BY_CHECK[name]]) targets[name] = entry.sha;
     }
     for (const [name, surface] of Object.entries(CONDITIONAL_SURFACE_BY_CHECK)) {
-      if (entry.impact[surface] && (entry.conditionalChecks?.includes(name) ?? true)) {
-        targets[name] = entry.sha;
-      }
+      if (entry.impact[surface]) targets[name] = entry.sha;
     }
   }
   return targets;
@@ -116,21 +109,6 @@ export function classifyCheckImpact(files) {
   };
 }
 
-function conditionalChecksForCommit(sha) {
-  let workflow;
-  try {
-    workflow = execFileSync("git", ["show", `${sha}:.github/workflows/ci.yml`], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-  } catch {
-    return [];
-  }
-  return Object.entries(WORKFLOW_MARKER_BY_CHECK)
-    .filter(([, marker]) => workflow.includes(marker))
-    .map(([name]) => name);
-}
-
 export function resolveCheckTargets(base, candidate) {
   const commits = execFileSync("git", revisionRangeArguments(base, candidate), {
     encoding: "utf8",
@@ -140,7 +118,6 @@ export function resolveCheckTargets(base, candidate) {
   const entries = commits.map((sha) => ({
     sha,
     impact: classifyCheckImpact(changedFilesForCommit(sha)),
-    conditionalChecks: conditionalChecksForCommit(sha),
   }));
   return selectCheckTargets(entries, candidate);
 }
@@ -176,8 +153,18 @@ export async function waitForChecks({
     for (const [sha, names] of checksBySha) {
       const data = await api(`/commits/${sha}/check-runs?per_page=100`, token, repository);
       const state = checkConclusions(data.check_runs, names);
-      pending.push(...state.pending.map((name) => `${name}@${sha.slice(0, 12)}`));
       failed.push(...state.failed.map((name) => `${name}@${sha.slice(0, 12)}`));
+      if (state.failed.length === 0 && state.pending.length > 0) {
+        const contexts = [...new Set(state.pending.map((name) => CHECK_CONTEXT_BY_TARGET[name] ?? name))];
+        const reused = await findReusableValidation({ candidate: sha, required: contexts, repository, token });
+        if (reused) {
+          process.stdout.write(
+            `Riuso check PR #${reused.pullNumber} per ${sha.slice(0, 12)} (albero ${reused.treeSha.slice(0, 12)}).\n`,
+          );
+          continue;
+        }
+      }
+      pending.push(...state.pending.map((name) => `${name}@${sha.slice(0, 12)}`));
     }
     if (failed.length > 0)
       throw new Error(`Check bloccanti falliti sul cumulativo: ${failed.join(", ")}`);
