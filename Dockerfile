@@ -1,4 +1,4 @@
-FROM node:26.7.0-trixie-slim@sha256:5758d367d7b4f48b73a9bb3530e687e47efb289f3b43f9c0450a25225ae0db5d AS debian-snapshot
+FROM node:26.8-trixie-slim@sha256:14bf3eac4bf209d906d3c41256597d3ab1f926b2e93a79e9bdfe1efd32454239 AS debian-snapshot
 
 ARG DEBIAN_SNAPSHOT=20260913T090000Z
 RUN sed -i \
