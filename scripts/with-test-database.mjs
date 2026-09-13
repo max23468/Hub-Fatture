@@ -7,7 +7,7 @@ import pg from "pg";
 const LOCAL_TEST_DATABASE_ROOT_URL =
   "postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test";
 
-export function localTestDatabaseName(worktreePath = process.cwd()) {
+export function localTestDatabaseName(worktreePath = process.cwd(), lane = "") {
   const slug = path
     .basename(worktreePath)
     .toLowerCase()
@@ -17,7 +17,12 @@ export function localTestDatabaseName(worktreePath = process.cwd()) {
     .update(path.resolve(worktreePath))
     .digest("hex")
     .slice(0, 10);
-  return `hf_${slug || "worktree"}_${fingerprint}_test`;
+  const laneSlug = lane
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, "_")
+    .replaceAll(/^_+|_+$/g, "")
+    .slice(0, 18);
+  return `hf_${slug || "worktree"}_${fingerprint}${laneSlug ? `_${laneSlug}` : ""}_test`;
 }
 
 export function localTestDatabaseUrl(environment = process.env, worktreePath = process.cwd()) {
@@ -27,7 +32,7 @@ export function localTestDatabaseUrl(environment = process.env, worktreePath = p
   }
   const databaseUrl = new URL(LOCAL_TEST_DATABASE_ROOT_URL);
   databaseUrl.port = String(port);
-  databaseUrl.pathname = `/${localTestDatabaseName(worktreePath)}`;
+  databaseUrl.pathname = `/${localTestDatabaseName(worktreePath, environment.TEST_DATABASE_LANE)}`;
   return databaseUrl.toString();
 }
 

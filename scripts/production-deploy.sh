@@ -4,11 +4,13 @@ set -eu
 digest=${1:-}
 commit=${2:-}
 version=${3:-}
+full_recreate=${4:-true}
 printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' \
   || { echo "Digest non valido" >&2; exit 2; }
 printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$' || { echo "Commit non valido" >&2; exit 2; }
 printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$' \
   || { echo "Versione non valida" >&2; exit 2; }
+case "$full_recreate" in true | false) ;; *) echo "Modalità recreate non valida" >&2; exit 2 ;; esac
 
 root=${HUB_FATTURE_ROOT:-/opt/hub-fatture}
 candidate_dir=${HUB_FATTURE_CANDIDATE_DIR:-$root/scripts}
@@ -109,7 +111,7 @@ rollback() {
     cp "$previous" .deploy.env
     cp "$previous_compose" compose.yaml
     cp "$previous_caddy" Caddyfile
-    docker compose -f compose.yaml --env-file .env --env-file .deploy.env up -d --wait --force-recreate
+    deploy_stack
     ./scripts/production-readback.sh "$expected_submission" >/dev/null
   else
     if ! docker compose -f compose.yaml --env-file .env --env-file .deploy.env down; then
@@ -120,8 +122,16 @@ rollback() {
   fi
 }
 
-if ! docker compose -f compose.yaml --env-file .env --env-file .deploy.env up -d --wait --force-recreate \
-  || ! "$candidate_dir/production-readback.sh" "$expected_submission" \
+if [ ! -s "$previous" ]; then full_recreate=true; fi
+deploy_stack() {
+  if [ "$full_recreate" = true ]; then
+    docker compose -f compose.yaml --env-file .env --env-file .deploy.env up -d --wait --force-recreate
+  else
+    docker compose -f compose.yaml --env-file .env --env-file .deploy.env up -d --wait --no-deps --force-recreate app-web app-worker
+  fi
+}
+
+if ! deploy_stack || ! "$candidate_dir/production-readback.sh" "$expected_submission" \
     >data/operations/deploy-receipt.json.next; then
   if rollback; then
     echo "Deploy non riuscito; rollback applicativo verificato" >&2

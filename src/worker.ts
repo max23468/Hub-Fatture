@@ -28,7 +28,10 @@ import {
 } from "./db/aruba-api-inbound.server.ts";
 import { runArubaApiOutboundJob } from "./db/aruba-api-outbound.server.ts";
 import { runArubaApiReadbackJob } from "./db/aruba-api-readback.server.ts";
-import { refreshOperationalControls } from "./db/operational-controls.server.ts";
+import {
+  recordOperationalControlsRefreshFailure,
+  refreshOperationalControls,
+} from "./db/operational-controls.server.ts";
 import { applyRetentionPolicy } from "./db/retention.server.ts";
 
 const workerId = randomUUID();
@@ -49,7 +52,8 @@ function scheduleOperationalControlsRefresh() {
   controlsRefreshRequested = true;
   if (controlsRefreshPromise) return;
   controlsRefreshPromise = refreshOperationalControlsUntilCurrent()
-    .catch(() => {
+    .catch(async () => {
+      await recordOperationalControlsRefreshFailure().catch(() => undefined);
       console.error(JSON.stringify({ event: "operational_controls_refresh_failed" }));
     })
     .finally(() => {

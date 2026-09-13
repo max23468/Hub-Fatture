@@ -109,6 +109,9 @@ export function classifyFiles(inputFiles) {
         file,
       ),
     );
+  const fullRecreate =
+    failClosed ||
+    files.some((file) => /^(?:compose\.production\.yaml|ops\/Caddyfile\.production)$/.test(file));
   const standard = files.length > 0 && !docsOnly;
   const lane =
     files.length === 0
@@ -141,6 +144,7 @@ export function classifyFiles(inputFiles) {
     image,
     migrationStorage,
     deploy,
+    fullRecreate,
     failClosed,
   };
 }
@@ -175,6 +179,7 @@ function outputs(result) {
     "image",
     "migrationStorage",
     "deploy",
+    "fullRecreate",
     "failClosed",
   ];
   const lines = [`lane=${result.lane}`];

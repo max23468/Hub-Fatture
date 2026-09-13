@@ -11,31 +11,32 @@ const scripts = (phase) => phase.map((entry) => entry.join(" "));
 
 test("il preflight documentale resta minimo", () => {
   const plan = preflightPlan(classifyFiles(["docs/runbooks/production.md"]));
-  assert.deepEqual(scripts(plan.core), ["npm run check:docs"]);
+  assert.deepEqual(scripts(plan.setup), ["npm run check:docs"]);
+  assert.deepEqual(plan.core, []);
   assert.deepEqual(plan.parallel, []);
-  assert.deepEqual(plan.browser, []);
 });
 
 test("il provider esegue Chromium e i contract test in parallelo ai gate specialistici", () => {
   const plan = preflightPlan(classifyFiles(["src/integrations/shopify.server.ts"]));
-  assert.deepEqual(scripts(plan.core), ["npm run check:docs", "npm run check:standard"]);
-  assert.deepEqual(scripts(plan.parallel), ["npm run test:provider"]);
-  assert.deepEqual(scripts(plan.browser), ["npm run test:e2e:chromium"]);
+  assert.deepEqual(scripts(plan.setup), ["npm run check:docs"]);
+  assert.deepEqual(scripts(plan.core), ["npm run check:standard"]);
+  assert.deepEqual(scripts(plan.parallel), [
+    "npm run test:provider",
+    "env TEST_DATABASE_LANE=e2e_chromium PLAYWRIGHT_BASE_URL=http://127.0.0.1:4173 DOCUMENT_STORAGE_ROOT=storage/e2e-documents-chromium npm run test:e2e:chromium:prepared",
+  ]);
 });
 
 test("la UI aggiunge WebKit al preflight locale", () => {
   const ui = preflightPlan(classifyFiles(["app/routes/home.tsx"]));
-  assert.deepEqual(scripts(ui.browser), ["npm run test:e2e:chromium", "npm run test:e2e:webkit"]);
+  assert.equal(ui.parallel.length, 2);
+  assert.match(scripts(ui.parallel)[1], /TEST_DATABASE_LANE=e2e_webkit/);
 });
 
 test("migrazioni completano l'audit prima del database", () => {
   const plan = preflightPlan(classifyFiles(["migrations/999_example.sql"]));
-  assert.deepEqual(scripts(plan.core), [
-    "npm run check:docs",
-    "npm run audit",
-    "npm run check:standard",
-  ]);
-  assert.deepEqual(scripts(plan.parallel), ["npm run test:db"]);
+  assert.deepEqual(scripts(plan.setup), ["npm run check:docs", "npm run audit"]);
+  assert.deepEqual(scripts(plan.core), ["npm run check:standard"]);
+  assert.match(scripts(plan.parallel)[0], /TEST_DATABASE_LANE=db/);
 });
 
 test("una modifica all'autorità del classificatore forza il preflight completo", () => {

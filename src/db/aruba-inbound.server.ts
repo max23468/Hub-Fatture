@@ -12,6 +12,7 @@ import {
 } from "../aruba-inbound.ts";
 import { AppError } from "../errors.ts";
 import {
+  hasUnresolvedArubaIdentityCollision,
   refreshArubaIdentityResolutions,
   arubaCursorStream as cursorStream,
   arubaPayloadDigest as payloadDigest,
@@ -48,25 +49,6 @@ async function needsOfficialXmlForReconciliation(client: pg.PoolClient, remoteDo
     [remoteDocumentId],
   );
   return result.rows[0]?.needed === true;
-}
-
-async function hasUnresolvedIdentityCollision(client: pg.PoolClient, remoteDocumentId: string) {
-  const result = await client.query(
-    `SELECT 1
-     FROM aruba_remote_documents remote
-     WHERE remote.id = $1
-       AND EXISTS (
-         SELECT 1 FROM aruba_deduplication_conflicts conflicts
-         WHERE conflicts.environment = remote.environment
-           AND conflicts.account_reference = remote.account_reference
-           AND conflicts.resolved_at IS NULL
-           AND (conflicts.existing_remote_document_id = remote.id
-             OR conflicts.incoming_remote_id = remote.remote_id)
-       )
-     LIMIT 1`,
-    [remoteDocumentId],
-  );
-  return Boolean(result.rows[0]);
 }
 
 export type ArubaPageIngestContext = {
@@ -437,7 +419,7 @@ export async function ingestParsedArubaPage(
     }
     await refreshArubaIdentityResolutions(client, storedId!);
     if (!conflicted) {
-      conflicted = await hasUnresolvedIdentityCollision(client, storedId!);
+      conflicted = await hasUnresolvedArubaIdentityCollision(client, storedId!);
     }
     touchedRemoteDocumentIds.push(storedId!);
     await client.query(
@@ -465,7 +447,7 @@ export async function ingestParsedArubaPage(
         JSON.stringify(remote),
       ],
     );
-    if (!conflicted || (await hasUnresolvedIdentityCollision(client, storedId!))) {
+    if (!conflicted || (await hasUnresolvedArubaIdentityCollision(client, storedId!))) {
       const official = await loadLatestOfficialXml(client, storedId!);
       await reconcileRemoteDocument(
         client,

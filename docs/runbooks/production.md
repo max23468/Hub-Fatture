@@ -26,7 +26,7 @@ target possono essere sostituiti per un recovery controllato con `HUB_FATTURE_RE
 
 ## Prima del deploy
 
-1. `npm run publish:preflight` classifica il diff rispetto a `origin/main` ed esegue soltanto i gate locali applicabili; audit, DB e contract test indipendenti procedono in parallelo.
+1. `npm run publish:preflight` classifica il diff rispetto a `origin/main`, compila una sola volta ed esegue in parallelo i gate specialistici applicabili. Le corsie DB, Chromium e WebKit usano database, porte e storage distinti.
 2. DNS Dynu, istanza, regione e hostname verificati da `scripts/production-preflight.sh`.
 3. Environment `Production` limitato a `main`, privo di reviewer obbligatori e usato soltanto dal job che necessita dei segreti; il dispatch manuale o la richiesta affermativa di pubblicazione costituisce l’autorizzazione.
 4. `.env` VPS con permessi `600`, Notifications Topic OCI obbligatorio e nessun valore nei log o nella repository.
@@ -41,6 +41,20 @@ di test o governance che non introduce differenze runtime dal commit già
 distribuito termina senza avviare il job Production. Se più PR runtime
 sono state assorbite in `main`, si distribuisce una sola volta il candidato
 finale.
+
+Dentro un ciclo `Pubblica` autorizzato, `npm run publish -- --execute` coordina
+preflight, push, PR, auto-merge vincolato all'HEAD, dispatch Production,
+verifica exact-SHA e pulizia finale. Senza `--execute` stampa soltanto il piano.
+`npm run publish -- --queue-health` segnala workflow in coda da oltre cinque
+minuti e mostra le PR aperte che potrebbero confluire nello stesso candidato;
+non cancella esecuzioni. Le modifiche runtime correlate già pronte possono
+quindi essere assorbite prima del tag e distribuite insieme una sola volta.
+
+Sul push squash in `main`, i check richiesti riusano l'esito della PR soltanto
+quando commit di merge e HEAD della PR hanno lo stesso albero Git, la PR è
+interna e tutti i check provengono da GitHub Actions. Qualsiasi modifica a
+workflow, classificatore, barriera exact-SHA o contratto di pubblicazione forza
+una nuova esecuzione completa.
 
 Un candidato precedente al deployment corrente è trattato esplicitamente come
 rollback deliberato: il workflow classifica le superfici rimosse, verifica i
@@ -57,6 +71,11 @@ la nuova base.
 ## Deploy e readback
 
 Avviare `scripts/dispatch-production.sh <sha>` indicando lo SHA completo di `main`; usare il secondo argomento `false` soltanto quando una policy distinta vieta esplicitamente la release. Il workflow verifica attestazione e target, prepara Compose, Caddyfile e bundle operativo come candidati, esegue il pull per digest e attende gli health check. Gli script e le unità `systemd` candidate vengono installati soltanto dopo il readback riuscito, così un rollback continua a usare il bundle operativo precedente. Backup e deploy condividono lo stesso lock per l’intera fase critica. Il deploy acquisisce sotto lo stesso lock la modalità invii già attiva e la passa esplicitamente a preflight, readback del candidato e readback dell’eventuale rollback, senza modificarla. Per codice ordinario viene riletta una ricevuta giornaliera riuscita e recente; migrazioni o modifiche allo storage producono un backup aggiuntivo prima del deploy e uno dopo il readback. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Se il candidato coincide già con la ricevuta live, il workflow riconcilia GitHub ma non ridistribuisce né sovrascrive il vero rollback. Un target senza ricevuta segue invece il percorso di bootstrap e registra esplicitamente l'assenza di un predecessore nel manifest. Dopo il readback il workflow registra un deployment tecnico separato, marcato con lo SHA realmente installato: questo record, non lo SHA del workflow dispatch, diventa la base del diff successivo. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/` il precedente environment di deploy senza segreti insieme ai relativi Compose e Caddyfile.
+
+Se cambiano soltanto immagine o codice applicativo, Compose ricrea `app-web` e
+`app-worker` lasciando attivi database e proxy. Il bootstrap e le modifiche a
+`compose.production.yaml` o `ops/Caddyfile.production` ricreano l'intero stack;
+il rollback applica la stessa modalità usata dal candidato.
 
 Controlli conclusivi:
 

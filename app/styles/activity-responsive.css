@@ -1,0 +1,223 @@
+@media (max-width: 85rem) {
+  .activity-table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  .activity-table,
+  .activity-table tbody,
+  .activity-table tr,
+  .activity-table td {
+    display: block;
+  }
+
+  .activity-table colgroup {
+    display: none;
+  }
+
+  .activity-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .activity-table tbody {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .activity-table tr {
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .activity-table-wrap .activity-table td {
+    display: grid;
+    grid-template-columns: 8.75rem minmax(0, 1fr);
+    gap: var(--space-3);
+    border-bottom: 0;
+    padding: 0.4rem 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .activity-table td::before {
+    content: attr(data-label);
+    color: var(--color-text-muted);
+    font-size: 0.8125rem;
+    font-weight: 700;
+  }
+
+  .activity-table td:first-child a,
+  .activity-table__truncate,
+  .activity-table td:nth-child(3) .activity-table__truncate,
+  .activity-table td:nth-child(6) time {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: unset;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .activity-table__action {
+    text-align: left;
+  }
+
+  .activity-table__action .dashboard-row-link {
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+    margin-right: 0;
+  }
+}
+@media (max-width: 64rem) {
+  .activity-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-overview {
+    gap: var(--space-4);
+  }
+
+  .activity-overview__counts {
+    border-top: 1px solid var(--color-border);
+    padding-top: var(--space-2);
+  }
+
+  .activity-overview__counts div:first-child {
+    border-left: 0;
+  }
+
+  .activity-row {
+    grid-template-columns: minmax(12rem, 0.8fr) minmax(0, 1.5fr);
+    gap: var(--space-3) var(--space-4);
+  }
+
+  .activity-row > :last-child {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+@media (max-width: 48rem) {
+  .activity-panel,
+  .activity-history-panel {
+    padding: 0;
+  }
+
+  .activity-overview__counts div {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    text-align: center;
+  }
+
+  .activity-overview__counts dd {
+    grid-row: 1;
+  }
+
+  .activity-overview__counts dt {
+    grid-row: 2;
+    font-size: 0.75rem;
+  }
+
+  .activity-panel__header {
+    grid-template-columns: 3rem minmax(0, 1fr) auto;
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+
+  .activity-row {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+
+  .activity-row__facts {
+    gap: var(--space-3);
+  }
+
+  .activity-row > :last-child {
+    grid-column: 1;
+    justify-self: stretch;
+  }
+
+  .activity-row > .dashboard-row-link,
+  .activity-row > form .button {
+    width: 100%;
+  }
+
+  .activity-empty {
+    grid-template-columns: 3rem minmax(0, 1fr);
+  }
+
+  .activity-empty .empty-state__actions {
+    grid-column: 1 / -1;
+  }
+
+  .activity-history-panel__header .activity-panel__count {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .activity-history-panel__header > .dashboard-icon {
+    grid-row: 1 / 3;
+  }
+
+  .activity-filters {
+    padding: var(--space-4);
+  }
+
+  .activity-filters__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+@media (max-width: 30rem) {
+  .activity-row__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 85rem) {
+  .activity-table thead {
+    position: static;
+    display: block;
+    width: auto;
+    height: auto;
+    overflow: auto hidden;
+    border-bottom: 1px solid var(--color-border);
+    clip-path: none;
+    padding: var(--space-2) var(--space-3);
+    white-space: normal;
+  }
+
+  .activity-table thead tr {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+    gap: var(--space-2);
+    border: 0;
+    background: transparent;
+  }
+
+  .activity-table thead th {
+    width: auto;
+    border: 0;
+    border-radius: 999px;
+    background: var(--color-bg);
+    padding: var(--space-1) var(--space-3);
+  }
+
+  .activity-table thead th:not([aria-sort]) {
+    display: none;
+  }
+}
