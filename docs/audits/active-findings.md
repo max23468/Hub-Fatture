@@ -10,7 +10,7 @@ I finding sono stati corretti e verificati sul worktree integrato con i gate loc
 
 ## Verifica
 
-La verifica locale comprende gate standard, audit, suite unitarie, database e provider, build, Doctor e matrice E2E Chromium/WebKit. Non esistono ancora prove CI o pubblicazione per queste modifiche locali; quei passaggi derivano dalle rispettive fonti autorevoli quando vengono eseguiti.
+La verifica locale comprende gate standard, audit, suite unitarie, database e provider, build, Doctor e matrice E2E Chromium/WebKit. Le prove remote e live si rileggono dalle rispettive fonti autorevoli per il commit corrente: CI, release e ricevuta Production.
 
 ## Controlli strutturali
 
