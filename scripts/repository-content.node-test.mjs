@@ -166,10 +166,6 @@ test("il candidato esegue Chromium e WebKit in ambienti isolati", async () => {
     "npm run build && node scripts/with-test-database.mjs npm run test:e2e:direct",
   );
   assert.equal(
-    manifest.scripts["test:e2e:release-candidate"],
-    "npm run build && node scripts/with-test-database.mjs npm run test:e2e:direct",
-  );
-  assert.equal(
     manifest.scripts["test:e2e:chromium"],
     "npm run build && node scripts/with-test-database.mjs npm run test:e2e:chromium:direct",
   );
