@@ -297,7 +297,6 @@ export const copy = {
     massApprovalAction: "Approva tutti i documenti standard",
     massApprovalResult: (approved: string, failed: string, storagePending: string) =>
       `Documenti approvati: ${approved}. Non approvati perché cambiati o non più idonei: ${failed}. Archiviazioni da riconciliare: ${storagePending}.`,
-    massApprovalApprovedItems: (items: string[]) => `Preparazioni approvate: ${items.join(", ")}.`,
   },
   customers: {
     eyebrow: "Anagrafiche correnti",
@@ -1157,8 +1156,6 @@ export const copy = {
     lastBackup: "Ultimo backup verificato",
     backupStatus: (completedAt: string, sizeBytes: number) =>
       `${completedAt} · ${integerFormatter.format(sizeBytes)} byte`,
-    backupCurrent: "Aggiornato",
-    backupStale: "Scaduto",
     backupPending: "Nessuna ricevuta valida disponibile",
     retentionStatus: "Conservazione tecnica",
     retentionPending: "Prima esecuzione in attesa",

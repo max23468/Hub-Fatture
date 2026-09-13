@@ -866,19 +866,17 @@ test(
         },
         { id: 1, canApprove: true, requestId: "save-third-again" },
       );
-      const staleMassApproval = await documents.approveInvoices(
-        [approvalToken(cases[2]!.id, thirdProjection)],
-        { id: 1, canApprove: true, requestId: "approve-mass-stale" },
-        true,
-        "DOCUMENT_ONLY",
-        { [cases[2]!.id]: "SKIP" },
-        thirdProjection.customerEmail.version,
-      );
       assert.deepEqual(
-        { ...staleMassApproval, outcomes: undefined },
-        { approved: 0, failed: 1, storagePending: 0, outcomes: undefined },
+        await documents.approveInvoices(
+          [approvalToken(cases[2]!.id, thirdProjection)],
+          { id: 1, canApprove: true, requestId: "approve-mass-stale" },
+          true,
+          "DOCUMENT_ONLY",
+          { [cases[2]!.id]: "SKIP" },
+          thirdProjection.customerEmail.version,
+        ),
+        { approved: 0, failed: 1, storagePending: 0 },
       );
-      assert.equal(staleMassApproval.outcomes[0]?.errorCode, "CONFLICT_REVISION");
       const freshThirdProjection = await documents.getInvoiceProjection(cases[2]!.id);
       assert.ok(
         freshThirdProjection &&
@@ -974,19 +972,17 @@ test(
       const finalStorageDirectory = path.join(storage, "invoices", expectedFullYear);
       await chmod(finalStorageDirectory, 0o500);
       try {
-        const massApproval = await documents.approveInvoices(
-          [approvalToken(cases[2]!.id, approvableThirdProjection)],
-          { id: 1, canApprove: true, requestId: "approve-mass" },
-          true,
-          "AUTOMATIC_AFTER_APPROVAL",
-          { [cases[2]!.id]: "SEND" },
-          approvableThirdProjection.customerEmail.version,
-        );
         assert.deepEqual(
-          { ...massApproval, outcomes: undefined },
-          { approved: 1, failed: 0, storagePending: 1, outcomes: undefined },
+          await documents.approveInvoices(
+            [approvalToken(cases[2]!.id, approvableThirdProjection)],
+            { id: 1, canApprove: true, requestId: "approve-mass" },
+            true,
+            "AUTOMATIC_AFTER_APPROVAL",
+            { [cases[2]!.id]: "SEND" },
+            approvableThirdProjection.customerEmail.version,
+          ),
+          { approved: 1, failed: 0, storagePending: 1 },
         );
-        assert.equal(massApproval.outcomes[0]?.approved, true);
       } finally {
         await chmod(finalStorageDirectory, 0o700);
       }
@@ -1238,20 +1234,19 @@ test(
       );
       assert.ok(directCandidate);
       assert.equal(directCandidate.draft_version, 0);
-      const directMassApproval = await documents.approveInvoices(
-        [
-          `${directCandidate.billing_case_id}:${directCandidate.case_revision}:${directCandidate.draft_version}:${directCandidate.projection_sha256}`,
-        ],
-        { id: 1, canApprove: true, requestId: "documents-mass-direct-approval" },
-        true,
-        directProjection.arubaMode,
-        { [directCase.id]: "SKIP" },
-        directProjection.customerEmail.version,
-        true,
-      );
       assert.deepEqual(
-        { ...directMassApproval, outcomes: undefined },
-        { approved: 1, failed: 0, storagePending: 0, outcomes: undefined },
+        await documents.approveInvoices(
+          [
+            `${directCandidate.billing_case_id}:${directCandidate.case_revision}:${directCandidate.draft_version}:${directCandidate.projection_sha256}`,
+          ],
+          { id: 1, canApprove: true, requestId: "documents-mass-direct-approval" },
+          true,
+          directProjection.arubaMode,
+          { [directCase.id]: "SKIP" },
+          directProjection.customerEmail.version,
+          true,
+        ),
+        { approved: 1, failed: 0, storagePending: 0 },
       );
       assert.deepEqual(
         (

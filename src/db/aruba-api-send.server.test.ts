@@ -40,6 +40,7 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
   process.env.APP_BASE_URL = "http://localhost:8080";
   process.env.APP_ENV = "test";
   process.env.ARUBA_ACCOUNT_REFERENCE = "synthetic-aruba-account";
+  process.env.ARUBA_ACCOUNT_IDENTITY = "synthetic-aruba-account";
   process.env.ARUBA_SUBMISSION_ENABLED = "true";
   process.env.ARUBA_API_READ_INTERVAL_MS = "5200";
   process.env.CREDENTIALS_ENCRYPTION_KEY = Buffer.alloc(32, 41).toString("base64url");

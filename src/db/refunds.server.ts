@@ -15,7 +15,6 @@ import {
 import { AppError } from "../errors.ts";
 import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { creditableRemainder } from "../refunds.ts";
-import { recipientComparison } from "../recipient-comparison.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import { effectiveApprovedInvoiceSql } from "./billing-case-sql.server.ts";
@@ -27,6 +26,7 @@ import type { ClaimedJob } from "./connector-types.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { customerEmailPreview, snapshotDocumentEmail } from "./email.server.ts";
 import { materializeDocumentStorage, readDocumentXml } from "./document-storage.server.ts";
+import { recipientComparison } from "./documents.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
 interface Actor {

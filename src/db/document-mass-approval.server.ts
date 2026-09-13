@@ -121,52 +121,40 @@ export async function approveInvoices(
     if (!emailChoice.success) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
     return { ...candidate, emailChoice: emailChoice.data };
   });
-  const labels = new Map(
-    (
-      await getPool().query<{ id: string; public_number: string }>(
-        `SELECT id::text, public_number FROM billing_cases WHERE id = ANY($1::bigint[])`,
-        [candidates.map((candidate) => candidate.caseId)],
-      )
-    ).rows.map((row) => [row.id, row.public_number]),
-  );
   await ensureFreshArubaInventory(actor);
-  const outcomes = await mapWithConcurrency(candidates, 4, async (candidate) => {
-    try {
-      const result = await approveInvoice(
-        candidate.caseId,
-        {
-          caseRevision: candidate.caseRevision,
-          draftVersion: candidate.draftVersion,
-          projectionSha256: candidate.projectionSha256,
-          confirmApproval: true,
-          confirmPending: false,
-          confirmDifference: false,
-          arubaMode: arubaMode.data,
-          confirmArubaDowngrade,
-          emailChoice: candidate.emailChoice,
-          emailModeVersion: rawEmailModeVersion,
-        },
-        actor,
-      );
-      return {
-        caseId: candidate.caseId,
-        publicNumber: labels.get(candidate.caseId) ?? candidate.caseId,
-        approved: result !== null,
-        storagePending: result?.storagePending ?? false,
-        errorCode: result === null ? "DOCUMENT_NOT_APPROVABLE" : null,
-      };
-    } catch (error) {
-      if (!(error instanceof AppError)) throw error;
-      return {
-        caseId: candidate.caseId,
-        publicNumber: labels.get(candidate.caseId) ?? candidate.caseId,
-        approved: false,
-        storagePending: false,
-        errorCode: error.code,
-        refreshing: error.code === "ARUBA_INVENTORY_REFRESHING",
-      };
-    }
-  });
+  const outcomes = await Promise.all(
+    candidates.map(async (candidate) => {
+      try {
+        const result = await approveInvoice(
+          candidate.caseId,
+          {
+            caseRevision: candidate.caseRevision,
+            draftVersion: candidate.draftVersion,
+            projectionSha256: candidate.projectionSha256,
+            confirmApproval: true,
+            confirmPending: false,
+            confirmDifference: false,
+            arubaMode: arubaMode.data,
+            confirmArubaDowngrade,
+            emailChoice: candidate.emailChoice,
+            emailModeVersion: rawEmailModeVersion,
+          },
+          actor,
+        );
+        return {
+          approved: result !== null,
+          storagePending: result?.storagePending ?? false,
+        };
+      } catch (error) {
+        if (!(error instanceof AppError)) throw error;
+        return {
+          approved: false,
+          storagePending: false,
+          refreshing: error.code === "ARUBA_INVENTORY_REFRESHING",
+        };
+      }
+    }),
+  );
   // Nessuna numerazione è avvenuta: la stessa conferma può attendere ancora.
   // Un esito parziale o un altro errore richiede invece una nuova decisione sulle residue.
   if (outcomes.every((outcome) => "refreshing" in outcome && outcome.refreshing)) {
@@ -177,6 +165,5 @@ export async function approveInvoices(
     approved,
     failed: candidates.length - approved,
     storagePending: outcomes.filter((outcome) => outcome.storagePending).length,
-    outcomes,
   };
 }

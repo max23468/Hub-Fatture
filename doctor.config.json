@@ -1,9 +1,6 @@
 {
   "$schema": "https://react.doctor/schema/config.json",
   "blocking": "warning",
-  "ignore": {
-    "files": ["build-server/**"]
-  },
   "supplyChain": {
     "enabled": false
   }

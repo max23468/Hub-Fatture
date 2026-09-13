@@ -65,11 +65,9 @@ test("i workflow che eseguono Node installano prima il runtime pinzato", async (
 
 test("React Doctor blocca warning ed errori con versione e Action pinzate", async () => {
   const manifest = JSON.parse(await read("package.json"));
-  const config = JSON.parse(await read("doctor.config.json"));
   const workflow = await read(".github/workflows/react-doctor.yml");
 
   assert.equal(manifest.scripts.doctor, "react-doctor --scope full --blocking warning .");
-  assert.ok(config.ignore.files.includes("build-server/**"));
   assert.match(workflow, /millionco\/react-doctor@[0-9a-f]{40}\b/);
   assert.match(workflow, /version:\s*latest/);
   assert.match(workflow, /scope:.*github\.event_name == 'pull_request'.*'changed'.*'full'/);

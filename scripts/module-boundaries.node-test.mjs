@@ -10,13 +10,16 @@ const sourceExtension = /\.(?:ts|tsx|mjs)$/;
 const importPattern = /(?:from\s+|import\s*)["'](\.[^"']+)["']/g;
 
 async function sourceFiles(directory) {
-  const entries = await readdir(path.join(root, directory), {
-    recursive: true,
-    withFileTypes: true,
-  });
-  return entries
-    .filter((entry) => entry.isFile() && sourceExtension.test(entry.name))
-    .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)));
+  const entries = await readdir(path.join(root, directory), { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map((entry) => {
+      const relative = path.join(directory, entry.name);
+      return entry.isDirectory()
+        ? sourceFiles(relative)
+        : Promise.resolve(sourceExtension.test(entry.name) ? [relative] : []);
+    }),
+  );
+  return nested.flat();
 }
 
 function localDependency(from, specifier, files) {

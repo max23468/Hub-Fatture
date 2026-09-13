@@ -19,7 +19,6 @@ import {
   fiscalProfileFromAcceptedInvoiceXml,
 } from "./documents.ts";
 import { validateFatturaXml } from "./fatturapa.server.ts";
-import { recipientComparison } from "./recipient-comparison.ts";
 
 const syntheticFiscalProfile = fiscalProfileSchema.parse(profileFixture);
 
@@ -50,35 +49,6 @@ const invoice: DocumentInput = {
   paymentStatus: "PAID",
   paymentMethod: "MP08",
 };
-
-test("il comparatore destinatario conserva la proiezione fiscale italiana ed estera", () => {
-  const italian = recipientComparison(invoice.recipient);
-  assert.deepEqual(
-    italian.map(({ field, projected }) => ({ field, projected })),
-    [
-      { field: "identity", projected: "MARIO ROSSI" },
-      { field: "taxes", projected: "CODICE_FISCALE · RSSMRA80A01H501U" },
-      { field: "address", projected: "VIA CLIENTE · 2 · 00100 · Roma · RM · IT" },
-      { field: "delivery", projected: "SdI 0000000" },
-    ],
-  );
-
-  const foreign = recipientComparison({
-    ...invoice.recipient,
-    kind: "EU",
-    address: {
-      line1: "Papenhuder Str. 26",
-      postalCode: "22087",
-      city: "Hamburg",
-      countryCode: "DE",
-    },
-    taxIdentifiers: [],
-    certifiedEmail: "cliente@example.invalid",
-  });
-  assert.equal(foreign[1]!.projected, "PARTITA_IVA · DE · 99999999999");
-  assert.equal(foreign[2]!.projected, "PAPENHUDER STR. · 26 · 00000 · Hamburg · DE");
-  assert.equal(foreign[3]!.projected, "SdI XXXXXXX");
-});
 
 test("un destinatario privato non eredita una ragione sociale dal campo Shopify", () => {
   const recipient = recipientFromCustomerSnapshot({

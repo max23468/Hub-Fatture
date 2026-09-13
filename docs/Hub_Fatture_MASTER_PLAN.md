@@ -3934,7 +3934,7 @@ La tranche `1.1.0`, richiesta esplicitamente dal titolare dopo la baseline 1.0, 
 - `Controlli` espone totale, ricerca e paginazione keyset stabile e permette di registrare motivo dell’attesa, scadenza e assegnazione a `Massimo` o `Codex`, con evidenza dei termini superati;
 - la retention di policy è un job PostgreSQL giornaliero con lease, retry, ricevuta persistente, stato nelle Impostazioni e controllo bloccante in caso di fallimento; le pulizie brevi di autenticazione restano nel processo web;
 - il contenuto delle consegne e-mail viene redatto dopo 90 giorni, i metadati residui rimossi dopo 24 mesi e nessun reinvio implicito può riutilizzare dati già eliminati;
-- permutazioni deterministiche proteggono la convergenza degli stati Aruba, l’ordine dei candidati e le finestre dello storico; la proiezione operativa è estratta in un modulo proprietario e i gate architetturali coprono anche route UI, billing cases e Controlli secondo i confini di §14.2.
+- permutazioni deterministiche proteggono la convergenza degli stati Aruba, l’ordine dei candidati e le finestre dello storico; la proiezione operativa è estratta in un modulo proprietario e il ratchet dimensionale copre anche route UI, billing cases e Controlli.
 
 Questa tranche non autorizza deploy, release, invii Aruba, e-mail reali o nuove integrazioni.
 
