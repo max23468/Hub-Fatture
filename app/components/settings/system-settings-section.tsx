@@ -55,10 +55,10 @@ export function SystemSettingsSection({
               <dt>{copy.settings.lastBackup}</dt>
               <dd>
                 {system.backup
-                  ? `${system.backupCurrent ? copy.settings.backupCurrent : copy.settings.backupStale} · ${copy.settings.backupStatus(
+                  ? copy.settings.backupStatus(
                       dateTime(system.backup.completedAt),
                       system.backup.sizeBytes,
-                    )}`
+                    )
                   : copy.settings.backupPending}
               </dd>
             </div>

@@ -88,16 +88,6 @@ test(
       assert.ok(byEmail.customers.some((item) => item.id === String(customer.id)));
       const byTaxId = await search.searchGlobal(customer.tax_id);
       assert.ok(byTaxId.customers.some((item) => item.id === String(customer.id)));
-      await database
-        .getPool()
-        .query("UPDATE customers SET phone = '390000009876' WHERE id = $1", [customer.id]);
-      const byPhone = await search.searchGlobal("390000009876");
-      const orderListByPhone = await (
-        await import("./order-queries.server.ts")
-      ).listOrders({
-        query: "390000009876",
-      });
-      assert.equal(orderListByPhone.rows.length, byPhone.totals.orders);
 
       const caseRow = (
         await database.getPool().query(

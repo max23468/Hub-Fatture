@@ -5,16 +5,6 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const sourceExtensions = [".ts", ".tsx", ".mjs"];
-
-function localDependency(from, specifier, candidates) {
-  const imported = path.resolve(path.dirname(from), specifier);
-  if (candidates.has(imported)) return imported;
-  for (const extension of sourceExtensions) {
-    if (candidates.has(imported + extension)) return imported + extension;
-  }
-  return null;
-}
 
 async function readRuntimeSources(directory) {
   const entries = await readdir(path.join(root, directory), {
@@ -44,8 +34,8 @@ async function reachableFiles(entry, candidates) {
     reachable.add(file);
     const source = await readFile(file, "utf8");
     for (const match of source.matchAll(/(?:from\s+|import\s*)["'](\.[^"']+)["']/g)) {
-      const imported = localDependency(file, match[1], candidates);
-      if (imported) await visit(imported);
+      const imported = path.resolve(path.dirname(file), match[1]);
+      if (candidates.has(imported)) await visit(imported);
     }
   }
   await visit(entry);
@@ -53,53 +43,66 @@ async function reachableFiles(entry, candidates) {
 }
 
 test("le richieste leggono la proiezione e il worker la aggiorna fuori dalla navigazione", async () => {
-  const [shell, routes, home, dashboardConnections, login, setup, motion, controlsModule, worker] =
-    await Promise.all([
-      readFile(path.join(root, "app/components/app-shell.tsx"), "utf8"),
-      readFile(path.join(root, "app/routes.ts"), "utf8"),
-      readFile(path.join(root, "app/routes/home.tsx"), "utf8"),
-      readFile(path.join(root, "app/components/dashboard-connections.tsx"), "utf8"),
-      readFile(path.join(root, "app/routes/login.tsx"), "utf8"),
-      readFile(path.join(root, "app/routes/setup.tsx"), "utf8"),
-      readFile(path.join(root, "app/styles/motion.css"), "utf8"),
-      readFile(path.join(root, "src/db/operational-controls.server.ts"), "utf8"),
-      readFile(path.join(root, "src/worker.ts"), "utf8"),
-    ]);
+  const [
+    shell,
+    rootRoute,
+    routes,
+    home,
+    controlsRoute,
+    controlsModule,
+    searchModule,
+    dashboardConnections,
+    login,
+    setup,
+    motion,
+    worker,
+  ] = await Promise.all([
+    readFile(path.join(root, "app/components/app-shell.tsx"), "utf8"),
+    readFile(path.join(root, "app/root.tsx"), "utf8"),
+    readFile(path.join(root, "app/routes.ts"), "utf8"),
+    readFile(path.join(root, "app/routes/home.tsx"), "utf8"),
+    readFile(path.join(root, "app/routes/controls.tsx"), "utf8"),
+    readFile(path.join(root, "src/db/operational-controls.server.ts"), "utf8"),
+    readFile(path.join(root, "src/db/search.server.ts"), "utf8"),
+    readFile(path.join(root, "app/components/dashboard-connections.tsx"), "utf8"),
+    readFile(path.join(root, "app/routes/login.tsx"), "utf8"),
+    readFile(path.join(root, "app/routes/setup.tsx"), "utf8"),
+    readFile(path.join(root, "app/styles/motion.css"), "utf8"),
+    readFile(path.join(root, "src/worker.ts"), "utf8"),
+  ]);
   assert.doesNotMatch(shell, /viewTransition/);
   assert.doesNotMatch(motion, /view-transition/);
   assert.match(shell, /<NavLink[\s\S]*?reloadDocument[\s\S]*?to=\{to\}/);
   assert.doesNotMatch(shell, /useNavigation|aria-busy|nav-item--pending/);
   assert.doesNotMatch(shell, /useFetcher|\/controlli\/riepilogo/);
   assert.match(shell, /useRouteLoaderData<typeof rootLoader>\("root"\)/);
+  assert.match(rootRoute, /readOperationalControlSummary/);
+  assert.doesNotMatch(rootRoute, /refreshOperationalControls/);
   assert.doesNotMatch(routes, /controlli\/riepilogo|controls-summary/);
   assert.match(home, /<Link[\s\S]*?reloadDocument[\s\S]*?to=\{item\.to\}/);
+  assert.match(home, /readOperationalControlSummary/);
   assert.doesNotMatch(home, /getOperationalControlSummary/);
+  assert.doesNotMatch(home, /refreshOperationalControls/);
   assert.doesNotMatch(home, /\/controlli\/riepilogo\?refresh=1/);
+  assert.match(controlsRoute, /readOperationalControls/);
+  assert.doesNotMatch(controlsRoute, /refreshOperationalControls/);
+  assert.match(controlsModule, /export async function readOperationalControls/);
+  assert.doesNotMatch(
+    controlsModule,
+    /export async function readOperationalControls[\s\S]*?await refreshOperationalControls\(\)/,
+  );
+  assert.doesNotMatch(searchModule, /refreshOperationalControls/);
   assert.match(dashboardConnections, /<Link[^>]*reloadDocument[^>]*to=\{to\}/);
   assert.match(login, /<Form[^>]*method="post"[^>]*reloadDocument/);
   assert.match(setup, /<Form[^>]*method="post"[^>]*reloadDocument/);
   assert.match(worker, /scheduleOperationalControlsRefresh\(\)/);
   assert.match(worker, /await refreshOperationalControls\(\)/);
   assert.match(worker, /await waitForOperationalControlsRefresh\(\)/);
-  assert.doesNotMatch(
-    controlsModule,
-    /export async function readOperationalControls[\s\S]*?await refreshOperationalControls\(\)/,
-  );
 
-  const runtimeSources = (
+  const runtimeRefreshConsumers = (
     await Promise.all([readRuntimeSources("app"), readRuntimeSources("src")])
-  ).flat();
-  const runtimeFiles = new Set(runtimeSources.map(({ file }) => path.join(root, file)));
-  const operationalProjection = path.join(root, "src/db/operational-controls.server.ts");
-  for (const entry of ["app/root.tsx", "app/routes/home.tsx", "app/routes/controls.server.ts"]) {
-    const dependencies = await reachableFiles(path.join(root, entry), runtimeFiles);
-    assert.ok(
-      dependencies.has(operationalProjection),
-      `${entry} deve raggiungere la proiezione operativa`,
-    );
-  }
-
-  const runtimeRefreshConsumers = runtimeSources
+  )
+    .flat()
     .filter(({ source }) => source.includes("refreshOperationalControls"))
     .map(({ file }) => file)
     .sort();
@@ -171,9 +174,9 @@ test("i percorsi legacy rimossi non restano esportabili né tornano come default
 });
 
 test("privacy e documentazione non regrediscono verso superfici indistinguibili o helper correnti", async () => {
-  const [activity, appSources, operationalControls, masterPlan, retention] = await Promise.all([
+  const [activity, controls, operationalControls, masterPlan, retention] = await Promise.all([
     readFile(path.join(root, "app/components/activity-view.tsx"), "utf8"),
-    readRuntimeSources("app"),
+    readFile(path.join(root, "app/routes/controls.tsx"), "utf8"),
     readFile(path.join(root, "src/db/operational-controls.server.ts"), "utf8"),
     readFile(path.join(root, "docs/Hub_Fatture_MASTER_PLAN.md"), "utf8"),
     readFile(path.join(root, "docs/contracts/retention-deletion.md"), "utf8"),
@@ -182,17 +185,8 @@ test("privacy e documentazione non regrediscono verso superfici indistinguibili 
   assert.match(operationalControls, /privacy\.externalEventId/);
   assert.match(operationalControls, /privacy\.customerIds\.join/);
   assert.match(operationalControls, /privacy\.orderIds\.join/);
-  const appFiles = new Set(appSources.map(({ file }) => path.join(root, file)));
-  const controlsUiFiles = await reachableFiles(
-    path.join(root, "app/routes/controls.tsx"),
-    appFiles,
-  );
-  const controlsUi = appSources
-    .filter(({ file }) => controlsUiFiles.has(path.join(root, file)))
-    .map(({ source }) => source)
-    .join("\n");
-  assert.match(controlsUi, /metadata\.privacyEventId/);
-  assert.match(controlsUi, /name="externalEventId"/);
+  assert.match(controls, /metadata\.privacyEventId/);
+  assert.match(controls, /name="externalEventId"/);
   assert.doesNotMatch(
     masterPlan,
     /guida l'helper locale|pagina unica con navigazione interna[^\n]*Aruba e helper|`Fallback transitorio`|comunicazione HTTPS helper-HF|helper su account o batch errato/,

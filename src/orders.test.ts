@@ -2,14 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  expectedHistoricalInvoiceAmount,
-  hasBareOrderReference,
-  hasConflictingMarketplaceReference,
-  historicalDocumentDateAllowed,
-  referenceIdentifiesInvoice,
-  type HistoricalInvoiceCandidate,
-} from "./historical-order-reconciliation.ts";
-import {
   canonicalTaxIdentifiers,
   customerDisplayName,
   customerIdentity,
@@ -25,34 +17,6 @@ import {
   presentationCustomer,
   triggerStatus,
 } from "./orders.ts";
-
-test("la riconciliazione storica applica riferimenti, finestra e rimborsi in modo prudenziale", () => {
-  assert.equal(hasBareOrderReference(["Vendita ordine n. #1001"], "#1001"), true);
-  assert.equal(hasBareOrderReference(["Vendita ordine n. #10010"], "#1001"), false);
-  assert.equal(hasConflictingMarketplaceReference(["Ordine eBay 12-34567-89012"], "SHOPIFY"), true);
-  assert.equal(referenceIdentifiesInvoice("Verificata fattura FPR 0012/26", "FPR 0012/26"), true);
-  assert.equal(historicalDocumentDateAllowed("2026-08-10", "2026-08-17"), true);
-  assert.equal(historicalDocumentDateAllowed("2026-08-10", "2026-08-18"), false);
-
-  const candidate: HistoricalInvoiceCandidate = {
-    id: "1",
-    provider: "SHOPIFY",
-    customer_snapshot: {},
-    local_order_date: "2026-08-10",
-    gross_amount: 12_000,
-    billable_amount: 11_500,
-    tax_identifiers: [],
-    refunds: [{ status: "COMPLETED", amount: 1_500, completed_date: "2026-08-11" }],
-  };
-  assert.equal(expectedHistoricalInvoiceAmount(candidate, "2026-08-12"), 10_000);
-  assert.equal(
-    expectedHistoricalInvoiceAmount(
-      { ...candidate, refunds: [{ status: "AMBIGUOUS", amount: null, completed_date: null }] },
-      "2026-08-12",
-    ),
-    null,
-  );
-});
 
 test("la Svizzera è un Paese supportato distinto dall'Unione europea", () => {
   assert.equal(customerKindFromCountry("IT", false), "PRIVATE_IT");

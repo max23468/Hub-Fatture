@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import type pg from "pg";
 import { z } from "zod";
 
 import {
@@ -26,7 +27,6 @@ import { getJoinedTransactionClient, getPool, withTransaction } from "./client.s
 import {
   arubaAccountReference as accountReference,
   arubaRuntimeEnvironment as environment,
-  hasUnresolvedArubaIdentityCollision,
   lockArubaInventory,
   refreshArubaIdentityResolutions,
   type ArubaReadActor,
@@ -47,6 +47,28 @@ import {
   officialEvidence,
   reconcileAutomaticAmbiguousInvoices,
 } from "./aruba-document-materialization.server.ts";
+
+async function hasUnresolvedArubaIdentityCollision(
+  client: pg.Pool | pg.PoolClient,
+  remoteDocumentId: string,
+) {
+  const result = await client.query(
+    `SELECT 1
+     FROM aruba_remote_documents remote
+     WHERE remote.id = $1
+       AND EXISTS (
+         SELECT 1 FROM aruba_deduplication_conflicts conflicts
+         WHERE conflicts.environment = remote.environment
+           AND conflicts.account_reference = remote.account_reference
+           AND conflicts.resolved_at IS NULL
+           AND (conflicts.existing_remote_document_id = remote.id
+             OR conflicts.incoming_remote_id = remote.remote_id)
+       )
+     LIMIT 1`,
+    [remoteDocumentId],
+  );
+  return Boolean(result.rows[0]);
+}
 
 async function importArubaRemoteOfficialFileAuthorized(
   authorization: ArubaReadActor | ArubaApiFileAuthorization,

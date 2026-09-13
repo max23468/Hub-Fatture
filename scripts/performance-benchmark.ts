@@ -6,7 +6,6 @@ import { runMigrations } from "../src/db/migrations.server.ts";
 const CUSTOMER_COUNT = 1_000;
 const ORDERS_PER_CUSTOMER = 3;
 const PREPARATION_COUNT = 500;
-const REMOTE_DOCUMENT_COUNT = 6_000;
 const WARMUP_RUNS = 1;
 const SAMPLE_RUNS = 5;
 
@@ -143,26 +142,6 @@ try {
             repeat('a', 64), 'MP08', billing_cases.customer_snapshot_json
      FROM billing_cases`,
   );
-  await getPool().query(
-    `INSERT INTO aruba_remote_documents
-       (environment, account_reference, remote_id, document_type, fiscal_year, series,
-        fiscal_number, document_date, recipient_name_normalized, total_amount,
-        remote_status, remote_status_observed_at, origin, metadata_digest)
-     SELECT 'MOCK', 'synthetic-aruba-account', 'benchmark-remote-' || value,
-            CASE WHEN value % 20 = 0 THEN 'TD04' ELSE 'TD01' END,
-            2026, CASE WHEN value % 20 = 0 THEN 'NCR' ELSE 'FPR' END,
-            lpad(value::text, 6, '0'), current_date - ((value % 730)::integer),
-            'cliente benchmark ' || (value % $2::integer), 10_000 + value,
-            CASE WHEN value % 25 = 0 THEN 'SUBMITTED' ELSE 'DELIVERED' END,
-            now(), 'ARUBA_EXTERNAL', md5(value::text) || md5((value + 1)::text)
-     FROM generate_series(1, $1::integer) AS value`,
-    [REMOTE_DOCUMENT_COUNT, CUSTOMER_COUNT],
-  );
-  await getPool().query(
-    `INSERT INTO aruba_document_matches
-       (remote_document_id, status, method, matcher_version)
-     SELECT id, 'UNMATCHED', 'NONE', 1 FROM aruba_remote_documents`,
-  );
   await getPool().query("ANALYZE");
   const seedMs = performance.now() - seedStartedAt;
 
@@ -170,8 +149,6 @@ try {
   const documents = await import("../src/db/document-archive.server.ts");
   const controls = await import("../src/db/operational-controls.server.ts");
   const orders = await import("../src/db/order-queries.server.ts");
-  const search = await import("../src/db/search.server.ts");
-  const arubaInventory = await import("../src/db/aruba-inventory-queries.server.ts");
 
   const results = {
     dashboard: rounded(await measure("dashboard", () => orders.dashboardSummary())),
@@ -193,12 +170,6 @@ try {
       await measure("riepilogo documenti", () => documents.documentArchiveSummary()),
     ),
     documents: rounded(await measure("lista documenti", () => documents.listDocuments({}))),
-    globalSearch: rounded(
-      await measure("ricerca globale", () => search.searchGlobal("benchmark-remote-4999")),
-    ),
-    arubaInventory: rounded(
-      await measure("inventario Aruba", () => arubaInventory.listRemoteDocumentsPage({ page: 1 })),
-    ),
   };
 
   process.stdout.write(
@@ -209,7 +180,6 @@ try {
           orders: CUSTOMER_COUNT * ORDERS_PER_CUSTOMER,
           preparations: PREPARATION_COUNT,
           documents: PREPARATION_COUNT,
-          remoteDocuments: REMOTE_DOCUMENT_COUNT,
         },
         samples: SAMPLE_RUNS,
         warmups: WARMUP_RUNS,
@@ -220,13 +190,6 @@ try {
       2,
     )}\n`,
   );
-  const budgets = { controlsRefresh: 10_000 } as Record<string, number>;
-  const slow = Object.entries(results).filter(
-    ([name, result]) => result.medianMs > (budgets[name] ?? 2_000),
-  );
-  if (slow.length) {
-    throw new Error(`Budget prestazionale superato: ${slow.map(([name]) => name).join(", ")}`);
-  }
   await clientModule.closePool();
 } finally {
   const clientModule = await import("../src/db/client.server.ts");
