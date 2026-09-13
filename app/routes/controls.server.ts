@@ -31,13 +31,22 @@ import { controlOrigins, controlSeverities, controlWaitingReasons } from "./cont
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
-  const state = url.searchParams.get("vista") === "attesa" ? "WAITING" : "OPEN";
+  const state =
+    url.searchParams.get("vista") === "attesa"
+      ? "WAITING"
+      : url.searchParams.get("vista") === "tutti"
+        ? "ALL"
+        : "OPEN";
   const requestedSeverity = url.searchParams.get("gravita");
   const requestedOrigin = url.searchParams.get("origine");
   const requestedKind = url.searchParams.get("tipo")?.trim() ?? "";
   const selectedControlId = url.searchParams.get("id")?.trim() ?? "";
   const search = url.searchParams.get("q")?.trim() ?? "";
   const cursor = url.searchParams.get("cursore")?.trim() ?? "";
+  const due = (["OVERDUE", "TODAY"] as const).find(
+    (value) => value === url.searchParams.get("scadenza"),
+  );
+  const assignedToMe = url.searchParams.get("assegnati") === "me";
   const severity = controlSeverities.find((item) => item === requestedSeverity);
   const origin = controlOrigins.find((item) => item === requestedOrigin);
   const result = await readOperationalControls({
@@ -48,6 +57,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     selectedId: selectedControlId || undefined,
     search,
     cursor: cursor || undefined,
+    due,
+    assigneeUsername: assignedToMe ? user.username : undefined,
   });
   const selected = result.selected;
   const identityConflict =
@@ -67,9 +78,12 @@ export async function loader({ request }: Route.LoaderArgs) {
     selectedControlId,
     search,
     cursor,
+    due: due ?? "",
+    assignedToMe,
     defaultDueDate: dateAfterInRome(1),
     today: dateAfterInRome(0),
     outcome: url.searchParams.get("esito") ?? "",
+    currentTime: new Date().toISOString(),
   };
 }
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0
+
+- La ricerca globale e la lista Ordini condividono i dati correnti del cliente, compresi telefono e identificativi fiscali. I risultati dei Controlli possono essere aperti nella vista completa senza perderne la ricerca.
+- L’approvazione massiva elabora al massimo quattro preparazioni alla volta e restituisce l’esito di ciascuna, distinguendo approvazioni, errori e archiviazioni ancora da completare.
+- I controlli Aruba mostrano per ogni ordine candidato importo locale, differenza e segnali di corrispondenza disponibili, senza trasformare il confronto in un collegamento automatico.
+- Controlli aggiunge la vista completa, i filtri per termine operativo e assegnazione personale e rende visibile se la coda materializzata è aggiornata, obsoleta o non ancora disponibile. Il worker registra anche l’ultimo aggiornamento fallito.
+- Le Impostazioni distinguono una ricevuta di backup corrente da una scaduta o assente.
+- La ricerca esatta dei documenti Aruba evita il confronto testuale esteso quando trova un identificativo univoco. Il benchmark copre ricerca globale, inventario e ricostruzione dei Controlli su 6.000 documenti remoti sintetici con budget verificati automaticamente.
+- Il dominio fiscale, la proiezione dei Controlli, le configurazioni e gli stili sono separati per responsabilità; duplicazioni e configurazioni residue non consumate sono state rimosse.
+
 ## 1.3.33
 
 - Quando Aruba espone la stessa fattura prima con un identificativo storico e poi con quello canonico del gruppo API, il conflitto si chiude automaticamente escludendo la copia storica priva di file, documenti, invii o decisioni, purché numero, data, totale, stato e gruppo coincidano con la copia canonica dotata di XML ufficiale. Il doppione non blocca più le approvazioni e non apre un controllo di documento errato.

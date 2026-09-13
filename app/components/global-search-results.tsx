@@ -90,7 +90,7 @@ export function GlobalSearchResults({
         onNavigate={onNavigate}
       />
       <SearchGroup
-        allHref={filteredHref("/controlli", normalizedQuery)}
+        allHref={filteredHref("/controlli", normalizedQuery, { vista: "tutti" })}
         icon={ClipboardCheck}
         id="controlli"
         label={copy.search.controls}
