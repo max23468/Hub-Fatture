@@ -1,0 +1,72 @@
+@media (max-width: 30rem) {
+  .auth-shell {
+    width: min(100% - 1.5rem, 32rem);
+    padding: var(--space-6) 0;
+  }
+}
+@media (max-width: 64rem) {
+  .public-page,
+  .public-page--compact {
+    width: min(100% - 3rem, 44rem);
+    grid-template-columns: 1fr;
+    align-content: center;
+    gap: var(--space-8);
+  }
+
+  .public-page__brand {
+    max-width: none;
+    gap: var(--space-4);
+  }
+
+  .public-page__brand p {
+    max-width: 44ch;
+  }
+
+  .public-card {
+    max-width: none;
+    margin: 0;
+  }
+}
+@media (max-width: 30rem) {
+  .public-page,
+  .public-page--compact {
+    width: min(100% - 2rem, 44rem);
+    min-height: 100svh;
+    padding: var(--space-6) 0;
+  }
+
+  .public-page,
+  .public-page--compact {
+    align-content: start;
+    gap: var(--space-6);
+  }
+
+  .public-page__brand {
+    gap: var(--space-3);
+  }
+
+  .public-page__brand .brand-lockup {
+    min-width: 0;
+    font-size: 1.15rem;
+  }
+
+  .public-page__brand .brand-lockup__mark {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .public-page__brand p {
+    font-size: 0.925rem;
+  }
+
+  .public-card__header {
+    grid-template-columns: 2.75rem minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .public-card__header .dashboard-icon {
+    width: 2.75rem;
+    height: 2.75rem;
+    flex-basis: 2.75rem;
+  }
+}
