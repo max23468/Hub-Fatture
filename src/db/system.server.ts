@@ -90,6 +90,7 @@ export async function getSystemStatus() {
     },
     retention: retention.rows[0] ?? null,
     backup,
+    backupCurrent: isBackupReceiptCurrent(backup),
     arubaSubmissionEnabled: config.ARUBA_SUBMISSION_ENABLED,
   };
 }

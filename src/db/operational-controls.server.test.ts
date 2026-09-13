@@ -60,6 +60,9 @@ test(
 
       assert.equal((await controls.readOperationalControlSummary()).open, 0);
       await controls.refreshOperationalControls();
+      const refreshSummary = await controls.readOperationalControlSummary();
+      assert.ok(refreshSummary.last_completed_at);
+      assert.equal(refreshSummary.last_failed_at, null);
       const first = await controls.readOperationalControls({ origin: "CUSTOMERS" });
       assert.equal(first.rows.length, 1);
       assert.equal(first.total, 1);
@@ -259,6 +262,21 @@ test(
       assert.equal(waiting.rows[0]!.waiting_reason, "FOLLOW_UP");
       assert.equal(waiting.rows[0]!.assignee_username, "Massimo");
       assert.equal(new Date(waiting.rows[0]!.due_at!).toISOString().slice(0, 10), "2099-12-31");
+      assert.equal(
+        (
+          await controls.readOperationalControls({
+            state: "ALL",
+            assigneeUsername: "Massimo",
+          })
+        ).total,
+        1,
+      );
+      assert.equal(
+        (await controls.readOperationalControls({ state: "WAITING", due: "OVERDUE" })).total,
+        0,
+      );
+      await controls.recordOperationalControlsRefreshFailure();
+      assert.ok((await controls.readOperationalControlSummary()).last_failed_at);
       await controls.reopenOperationalControl("BULK_CONTROL:144");
       assert.equal((await controls.readOperationalControls({ state: "WAITING" })).total, 0);
 
