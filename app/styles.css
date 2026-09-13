@@ -5,4 +5,11 @@
 @import "./styles/settings.css";
 @import "./styles/activity-documents.css";
 @import "./styles/controls.css";
-@import "./styles/customers-responsive.css";
+@import "./styles/shell-responsive.css";
+@import "./styles/orders-responsive.css";
+@import "./styles/customers.css";
+@import "./styles/activity-responsive.css";
+@import "./styles/documents-responsive.css";
+@import "./styles/settings-responsive.css";
+@import "./styles/detail-responsive.css";
+@import "./styles/public-responsive.css";
