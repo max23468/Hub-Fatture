@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: foundation-${{ github.event.pull_request.number || github.ref }}
@@ -20,8 +21,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      # Nessuno step esegue Node: i controlli sulla toolchain vivono in `npm run check`,
-      # qui restano soltanto guardie di shell sul contenuto della repository.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
@@ -30,7 +29,15 @@ jobs:
         with:
           install: true
           cache: true
+      - id: reuse
+        if: github.event_name == 'push'
+        env:
+          CANDIDATE: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_CHECKS_JSON: '["Foundation"]'
+        run: node scripts/check-reuse.mjs
       - name: Verifica repository e documentazione
+        if: steps.reuse.outputs.reused != 'true'
         # Le guardie su contenuto tracciato vivono in scripts/repository-content.node-test.mjs,
         # dove il codice di uscita di `git grep` è ispezionabile invece di essere appiattito da `!`.
         # I file letti da scripts/toolchain-policy.mjs non si ripetono qui: quello script
@@ -47,7 +54,7 @@ jobs:
           test ! -e LICENSE
           git diff --check "$BASE_SHA" "$HEAD_SHA"
       - name: Verifica titolo PR in formato Conventional Commit
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.reuse.outputs.reused != 'true'
         env:
           PULL_REQUEST_TITLE: ${{ github.event.pull_request.title }}
         run: |
@@ -55,6 +62,7 @@ jobs:
             | grep -qE '^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9 /_-]+\))?!?: .+' \
             || { echo "Titolo PR non in formato Conventional Commit: $PULL_REQUEST_TITLE"; exit 1; }
       - name: Classifica l'impatto
+        if: steps.reuse.outputs.reused != 'true'
         id: impact
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -66,7 +74,9 @@ jobs:
             node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
           fi
       - name: Verifica xmllint nell'immagine app
-        if: steps.impact.outputs.image == 'true'
+        if: steps.reuse.outputs.reused != 'true' && steps.impact.outputs.image == 'true'
         run: |
           docker build --tag hub-fatture-app:foundation .
           docker run --rm hub-fatture-app:foundation xmllint --version
+      - if: steps.reuse.outputs.reused == 'true'
+        run: echo "Foundation riusata dalla PR con albero Git equivalente."

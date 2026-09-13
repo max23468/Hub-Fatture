@@ -88,7 +88,8 @@ export async function findReusableValidation({
     request(`/git/commits/${pull.head.sha}`),
     allPages(`/commits/${pull.head.sha}/check-runs`, "check_runs", request),
   ]);
-  if (!candidateCommit.tree?.sha || candidateCommit.tree.sha !== sourceCommit.tree?.sha) return null;
+  if (!candidateCommit.tree?.sha || candidateCommit.tree.sha !== sourceCommit.tree?.sha)
+    return null;
   if (!successfulChecks(checks, [...new Set(required)], repository)) return null;
   return { pullNumber: pull.number, sourceSha: pull.head.sha, treeSha: candidateCommit.tree.sha };
 }

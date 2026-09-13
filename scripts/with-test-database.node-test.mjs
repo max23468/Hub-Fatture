@@ -56,6 +56,14 @@ test("una porta dedicata mantiene isolata la corsia automatica", () => {
   assert.throws(() => localTestDatabaseUrl({ TEST_DATABASE_PORT: "0" }), /porta TCP valida/);
 });
 
+test("le corsie parallele ricevono database locali distinti", () => {
+  const worktree = "/tmp/Hub-Fatture-controls";
+  assert.notEqual(
+    localTestDatabaseUrl({ TEST_DATABASE_LANE: "db" }, worktree),
+    localTestDatabaseUrl({ TEST_DATABASE_LANE: "e2e_chromium" }, worktree),
+  );
+});
+
 test("serializza il gate sul database senza usare credenziali nel lock", async () => {
   const events = [];
   const environment = {
@@ -170,5 +178,17 @@ test("i gate DB ed E2E usano sempre il runner automatico", () => {
   assert.equal(
     packageJson.scripts["test:e2e"],
     "npm run build && node scripts/with-test-database.mjs npm run test:e2e:direct",
+  );
+  assert.equal(
+    packageJson.scripts["test:e2e:release-candidate"],
+    "npm run build && node scripts/with-test-database.mjs npm run test:e2e:direct",
+  );
+  assert.equal(
+    packageJson.scripts["test:e2e:chromium:prepared"],
+    "node scripts/with-test-database.mjs npm run test:e2e:chromium:direct",
+  );
+  assert.equal(
+    packageJson.scripts["test:e2e:webkit:prepared"],
+    "node scripts/with-test-database.mjs npm run test:e2e:webkit:direct",
   );
 });

@@ -86,6 +86,13 @@ test("il Dockerfile applicativo attiva la corsia runtime e immagine completa", (
   assert.equal(impact.securityData, true);
   assert.equal(impact.deploy, true);
   assert.equal(impact.e2e, true);
+  assert.equal(impact.fullRecreate, false);
+});
+
+test("la configurazione infrastrutturale ricrea l'intero stack", () => {
+  assert.equal(classifyFiles(["compose.production.yaml"]).fullRecreate, true);
+  assert.equal(classifyFiles(["ops/Caddyfile.production"]).fullRecreate, true);
+  assert.equal(classifyFiles(["app/routes/home.tsx"]).fullRecreate, false);
 });
 
 test("migrazioni e storage attivano DB, sicurezza e backup aggiuntivo", () => {
@@ -95,6 +102,7 @@ test("migrazioni e storage attivano DB, sicurezza e backup aggiuntivo", () => {
   assert.equal(impact.securityData, true);
   assert.equal(impact.migrationStorage, true);
   assert.equal(impact.deploy, true);
+  assert.equal(impact.fullRecreate, false);
   assert.equal(impact.e2eWebkit, false);
 });
 

@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
   security-events: write
 
 jobs:
@@ -26,7 +27,15 @@ jobs:
         with:
           install: true
           cache: true
+      - id: reuse
+        if: github.event_name == 'push'
+        env:
+          CANDIDATE: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_CHECKS_JSON: '["Analyze (javascript-typescript)"]'
+        run: node scripts/check-reuse.mjs
       - id: impact
+        if: steps.reuse.outputs.reused != 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -39,10 +48,12 @@ jobs:
             node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
           fi
       - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
-        if: steps.impact.outputs.standard == 'true'
+        if: steps.reuse.outputs.reused != 'true' && steps.impact.outputs.standard == 'true'
         with:
           languages: javascript-typescript
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
-        if: steps.impact.outputs.standard == 'true'
-      - if: steps.impact.outputs.standard != 'true'
+        if: steps.reuse.outputs.reused != 'true' && steps.impact.outputs.standard == 'true'
+      - if: steps.reuse.outputs.reused != 'true' && steps.impact.outputs.standard != 'true'
         run: echo "CodeQL non applicabile a questa corsia."
+      - if: steps.reuse.outputs.reused == 'true'
+        run: echo "CodeQL riusato dalla PR con albero Git equivalente."

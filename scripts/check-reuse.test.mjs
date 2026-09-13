@@ -28,7 +28,10 @@ test("riconosce le modifiche alla catena di fiducia della pubblicazione", () => 
 
 test("accetta soltanto check GitHub Actions riusciti e appartenenti alla repository", () => {
   assert.equal(successfulChecks([check("CI")], ["CI"], repository), true);
-  assert.equal(successfulChecks([{ ...check("CI"), conclusion: "failure" }], ["CI"], repository), false);
+  assert.equal(
+    successfulChecks([{ ...check("CI"), conclusion: "failure" }], ["CI"], repository),
+    false,
+  );
   assert.equal(
     successfulChecks([{ ...check("CI"), app: { slug: "external" } }], ["CI"], repository),
     false,

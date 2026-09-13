@@ -184,10 +184,7 @@ test("i commit con CI monolitica non richiedono job storici inesistenti", () => 
 });
 
 test("i gate condizionali usano il risultato aggregato CI", () => {
-  const state = checkConclusions(
-    [success("CI")],
-    ["CI (database)", "CI (provider)"],
-  );
+  const state = checkConclusions([success("CI")], ["CI (database)", "CI (provider)"]);
   assert.deepEqual(state, { pending: [], failed: [] });
 });
 

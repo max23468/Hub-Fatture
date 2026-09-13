@@ -1,4 +1,5 @@
 name: Production
+run-name: Production ${{ inputs.commit }}
 
 on:
   workflow_dispatch:
@@ -42,6 +43,7 @@ jobs:
       runtime: ${{ steps.impact.outputs.runtime }}
       image: ${{ steps.impact.outputs.image }}
       backup: ${{ steps.impact.outputs.migration_storage }}
+      full_recreate: ${{ steps.impact.outputs.full_recreate }}
       lane: ${{ steps.impact.outputs.lane }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -55,7 +57,7 @@ jobs:
       - name: Conserva il tooling della revisione fidata
         run: |
           install -d -m 700 "$RUNNER_TEMP/hub-fatture-production-tooling"
-          install -m 600 scripts/change-impact.mjs scripts/commit-checks.mjs \
+          install -m 600 scripts/change-impact.mjs scripts/check-reuse.mjs scripts/commit-checks.mjs \
             "$RUNNER_TEMP/hub-fatture-production-tooling/"
           install -m 700 scripts/production-workflow.sh \
             "$RUNNER_TEMP/hub-fatture-production-tooling/"
@@ -96,6 +98,7 @@ jobs:
     permissions:
       checks: read
       contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -104,7 +107,7 @@ jobs:
       - name: Conserva il tooling della revisione fidata
         run: |
           install -d -m 700 "$RUNNER_TEMP/hub-fatture-production-tooling"
-          install -m 600 scripts/change-impact.mjs scripts/commit-checks.mjs \
+          install -m 600 scripts/change-impact.mjs scripts/check-reuse.mjs scripts/commit-checks.mjs \
             "$RUNNER_TEMP/hub-fatture-production-tooling/"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -295,6 +298,7 @@ jobs:
           BACKUP_REQUIRED: ${{ needs.candidate.outputs.backup }}
           COMMIT: ${{ needs.candidate.outputs.commit }}
           DIGEST: ${{ needs.image.outputs.digest }}
+          FULL_RECREATE: ${{ needs.candidate.outputs.full_recreate }}
           VERSION: ${{ needs.candidate.outputs.version }}
           SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
           SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}

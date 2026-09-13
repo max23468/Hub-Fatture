@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -26,6 +27,7 @@ jobs:
       e2e: ${{ steps.impact.outputs.e2e }}
       e2e_matrix: ${{ steps.impact.outputs.e2e_matrix }}
       lane: ${{ steps.impact.outputs.lane }}
+      reused: ${{ steps.reuse.outputs.reused }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -46,11 +48,19 @@ jobs:
             impact=$(node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA")
           fi
           printf '%s\n' "$impact" >> "$GITHUB_OUTPUT"
+      - id: reuse
+        if: github.event_name == 'push'
+        env:
+          CANDIDATE: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_CHECKS_JSON: '["CI"]'
+        run: node scripts/check-reuse.mjs
       - run: echo "Corsia selezionata - ${{ steps.impact.outputs.lane }}" >> "$GITHUB_STEP_SUMMARY"
 
   repository:
     name: Guardie repository
     needs: impact
+    if: needs.impact.outputs.reused != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -65,7 +75,7 @@ jobs:
 
   standard:
     name: Gate standard
-    if: needs.impact.outputs.standard == 'true'
+    if: needs.impact.outputs.reused != 'true' && needs.impact.outputs.standard == 'true'
     needs: impact
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -83,7 +93,7 @@ jobs:
 
   database:
     name: PostgreSQL e migrazioni
-    if: needs.impact.outputs.database == 'true'
+    if: needs.impact.outputs.reused != 'true' && needs.impact.outputs.database == 'true'
     needs: impact
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -122,7 +132,7 @@ jobs:
 
   security:
     name: Audit dipendenze
-    if: needs.impact.outputs.security-data == 'true'
+    if: needs.impact.outputs.reused != 'true' && needs.impact.outputs.security-data == 'true'
     needs: impact
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -139,7 +149,7 @@ jobs:
 
   provider:
     name: Contract test provider
-    if: needs.impact.outputs.provider == 'true'
+    if: needs.impact.outputs.reused != 'true' && needs.impact.outputs.provider == 'true'
     needs: impact
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -157,7 +167,7 @@ jobs:
 
   e2e:
     name: E2E ${{ matrix.label }}
-    if: needs.impact.outputs.e2e == 'true'
+    if: needs.impact.outputs.reused != 'true' && needs.impact.outputs.e2e == 'true'
     needs: impact
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -210,4 +220,8 @@ jobs:
         run: |
           failures=$(printf '%s' "$RESULTS" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key + ": " + .value.result')
           test -z "$failures" || { printf '%s\n' "$failures"; exit 1; }
-          echo "Tutti i gate applicabili sono conclusi."
+          if [ "${{ needs.impact.outputs.reused }}" = true ]; then
+            echo "Gate riusati dalla PR con albero Git equivalente."
+          else
+            echo "Tutti i gate applicabili sono conclusi."
+          fi

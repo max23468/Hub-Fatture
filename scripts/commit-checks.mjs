@@ -47,8 +47,7 @@ export function checkConclusions(checkRuns, required = REQUIRED) {
   for (const name of required) {
     const check = latest.get(CHECK_CONTEXT_BY_TARGET[name] ?? name);
     if (!check || check.status !== "completed") pending.push(name);
-    else if (!["success", "neutral", "skipped"].includes(check.conclusion))
-      failed.push(name);
+    else if (!["success", "neutral", "skipped"].includes(check.conclusion)) failed.push(name);
   }
   return { pending, failed };
 }
@@ -155,8 +154,15 @@ export async function waitForChecks({
       const state = checkConclusions(data.check_runs, names);
       failed.push(...state.failed.map((name) => `${name}@${sha.slice(0, 12)}`));
       if (state.failed.length === 0 && state.pending.length > 0) {
-        const contexts = [...new Set(state.pending.map((name) => CHECK_CONTEXT_BY_TARGET[name] ?? name))];
-        const reused = await findReusableValidation({ candidate: sha, required: contexts, repository, token });
+        const contexts = [
+          ...new Set(state.pending.map((name) => CHECK_CONTEXT_BY_TARGET[name] ?? name)),
+        ];
+        const reused = await findReusableValidation({
+          candidate: sha,
+          required: contexts,
+          repository,
+          token,
+        });
         if (reused) {
           process.stdout.write(
             `Riuso check PR #${reused.pullNumber} per ${sha.slice(0, 12)} (albero ${reused.treeSha.slice(0, 12)}).\n`,

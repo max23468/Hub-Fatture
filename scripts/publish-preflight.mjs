@@ -7,18 +7,34 @@ import { changelogSection } from "./prepare-production-release.mjs";
 const command = (script) => ["npm", "run", script];
 
 export function preflightPlan(impact) {
-  const core = [command("check:docs")];
-  if (impact.securityData) core.push(command("audit"));
-  if (impact.standard) core.push(command("check:standard"));
+  const setup = [command("check:docs")];
+  if (impact.securityData) setup.push(command("audit"));
+  const core = impact.standard ? [command("check:standard")] : [];
 
   const parallel = [];
-  if (impact.database) parallel.push(command("test:db"));
+  if (impact.database) parallel.push(["env", "TEST_DATABASE_LANE=db", "npm", "run", "test:db"]);
   if (impact.provider) parallel.push(command("test:provider"));
-
-  const browser = [];
-  if (impact.e2e) browser.push(command("test:e2e:chromium"));
-  if (impact.e2eWebkit) browser.push(command("test:e2e:webkit"));
-  return { browser, core, parallel };
+  if (impact.e2e)
+    parallel.push([
+      "env",
+      "TEST_DATABASE_LANE=e2e_chromium",
+      "PLAYWRIGHT_BASE_URL=http://127.0.0.1:4173",
+      "DOCUMENT_STORAGE_ROOT=storage/e2e-documents-chromium",
+      "npm",
+      "run",
+      "test:e2e:chromium:prepared",
+    ]);
+  if (impact.e2eWebkit)
+    parallel.push([
+      "env",
+      "TEST_DATABASE_LANE=e2e_webkit",
+      "PLAYWRIGHT_BASE_URL=http://127.0.0.1:4174",
+      "DOCUMENT_STORAGE_ROOT=storage/e2e-documents-webkit",
+      "npm",
+      "run",
+      "test:e2e:webkit:prepared",
+    ]);
+  return { core, parallel, setup };
 }
 
 export function classifyPreflightFiles(files) {
@@ -121,11 +137,11 @@ async function main(argv = process.argv.slice(2)) {
   }
   const plan = preflightPlan(impact);
   process.stdout.write(
-    `Preflight ${impact.lane}: ${files.length} file, ${plan.core.length + plan.parallel.length + plan.browser.length} gate.\n`,
+    `Preflight ${impact.lane}: ${files.length} file, ${plan.setup.length + plan.core.length + plan.parallel.length} gate.\n`,
   );
+  await Promise.all(plan.setup.map(run));
   for (const item of plan.core) await run(item);
   await Promise.all(plan.parallel.map(run));
-  for (const item of plan.browser) await run(item);
   process.stdout.write("Preflight di pubblicazione completato.\n");
 }
 
