@@ -123,6 +123,19 @@ test("monitoraggio Aruba applica priorità, soglie persistenti e controlli canon
     );
 
     await pool.query(
+      `UPDATE aruba_submissions SET status = 'NOT_DELIVERED',
+         remote_status_changed_at = now(), error_code = NULL`,
+    );
+    await controls.refreshOperationalControls();
+    assert.equal(
+      (await controls.readOperationalControls({})).rows.some((row) =>
+        row.kind.startsWith("ARUBA_SUBMISSION_"),
+      ),
+      false,
+      "la fattura emessa ma non consegnata non apre un controllo",
+    );
+
+    await pool.query(
       `INSERT INTO jobs (type, payload_json, priority, run_at)
        VALUES
          ('maintenance_retention', '{}', 50, now() - interval '1 minute'),

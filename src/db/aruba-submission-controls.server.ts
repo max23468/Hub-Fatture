@@ -5,7 +5,6 @@ type SubmissionControlCause =
   | "REMOTE_UNKNOWN"
   | "PROCESSING_ERROR"
   | "SDI_REJECTED"
-  | "NOT_DELIVERED"
   | "OVERDUE"
   | "TECHNICAL_FAILURE";
 
@@ -18,7 +17,6 @@ function submissionCause(row: {
   if (row.status === "UNKNOWN_REMOTE_STATE") return "REMOTE_UNKNOWN";
   if (row.status === "UNKNOWN") return "PROCESSING_ERROR";
   if (row.status === "REJECTED") return "SDI_REJECTED";
-  if (row.status === "NOT_DELIVERED") return "NOT_DELIVERED";
   if (row.overdue) return "OVERDUE";
   return "TECHNICAL_FAILURE";
 }
@@ -42,12 +40,6 @@ const definitions = {
     action: "Apri documento e leggi l’esito",
     severity: "BLOCKING" as const,
   },
-  NOT_DELIVERED: {
-    title: "Documento non consegnato da SdI",
-    consequence: "La fattura è emessa, ma il destinatario deve riceverne una copia leggibile.",
-    action: "Apri documento e gestisci il destinatario",
-    severity: "IMPORTANT" as const,
-  },
   OVERDUE: {
     title: "Aggiornamento SdI oltre la soglia prevista",
     consequence: "L’attesa supera 24 ore: serve una nuova lettura autorevole, non un reinvio.",
@@ -67,7 +59,6 @@ const statusLabels: Record<string, string> = {
   SDI_PROCESSING: "In lavorazione SdI",
   SUBMITTED: "Inviato a SdI",
   DELIVERED: "Consegnato",
-  NOT_DELIVERED: "Mancata consegna",
   REJECTED: "Scartato",
   UNKNOWN: "Esito da verificare",
   UNKNOWN_REMOTE_STATE: "Stato remoto incerto",
@@ -107,10 +98,10 @@ export async function listArubaSubmissionControlCandidates() {
      JOIN aruba_batches AS batches ON batches.id = submissions.batch_id
      JOIN documents ON documents.id = submissions.document_id
      JOIN billing_cases ON billing_cases.id = documents.billing_case_id
+     -- La mancata consegna conferma l'emissione: il recapito al cliente segue la copia e-mail.
      WHERE submissions.error_code = 'ARUBA_INVENTORY_CONFLICT'
         OR submissions.status IN ('DRY_RUN_FAILED', 'SEND_FAILED', 'VALIDATION_FAILED',
-                                  'REJECTED', 'NOT_DELIVERED', 'UNKNOWN',
-                                  'UNKNOWN_REMOTE_STATE')
+                                  'REJECTED', 'UNKNOWN', 'UNKNOWN_REMOTE_STATE')
         OR (submissions.status IN ('ARUBA_ACCEPTED', 'SDI_PROCESSING', 'SUBMITTED')
             AND coalesce(submissions.remote_status_changed_at, submissions.accepted_at,
                          submissions.submitted_at, batches.updated_at)

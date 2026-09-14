@@ -31,7 +31,8 @@ Al termine:
 5. un XML TD01 approvato e immutabile può essere trasmesso realmente come XML non firmato;
 6. ogni documento trasmesso viene seguito fino a uno stato remoto comprensibile o a un controllo
    operativo;
-7. scarto, mancata consegna, tempo oltre soglia e stato remoto incerto sono visibili e azionabili;
+7. scarto, tempo oltre soglia e stato remoto incerto sono visibili e azionabili; la mancata consegna
+   resta visibile senza aprire un controllo;
 8. audit, limiti provider, concorrenza e recovery impediscono duplicazioni e retry fiscali ciechi;
 9. il frontend resta coerente con il prodotto e viene verificato e mostrato a geometria desktop e
    mobile.
@@ -306,8 +307,8 @@ completato oppure con intervento richiesto. Non costituisce prova fiscale, non n
 parziali e non può autorizzare un retry collettivo.
 
 `DELIVERED` e `NOT_DELIVERED` continuano ad abilitare il flusso e-mail già approvato. La mancata
-consegna resta fiscalmente distinta dallo scarto: il documento esiste, ma Hub Fatture apre un
-controllo affinché il destinatario venga gestito consapevolmente.
+consegna resta fiscalmente distinta dallo scarto: il documento è emesso, lo stato resta visibile nel
+dettaglio e non apre un controllo, perché il recapito al cliente segue la copia e-mail.
 
 Una transizione API autorevole a `REJECTED` conserva immutabili documento, numero e tentativi e
 riporta gli ordini ancora fatturabili in una nuova preparazione. Non approva, non numera e non
@@ -356,8 +357,9 @@ Le soglie si riferiscono alla fase osservabile e non promettono tempi che il pro
 - `SUBMITTED` senza esito terminale oltre 24 ore: richiesta di verifica, descritta come attesa
   prolungata e non automaticamente come violazione Aruba; se il documento remoto è già escluso come
   errato, resta soltanto il suo controllo dedicato;
-- `REJECTED`, `NOT_DELIVERED`, `UNKNOWN` e `UNKNOWN_REMOTE_STATE`: controllo immediato con causa,
-  conseguenza e azione diretta.
+- `REJECTED`, `UNKNOWN` e `UNKNOWN_REMOTE_STATE`: controllo immediato con causa, conseguenza e
+  azione diretta;
+- `NOT_DELIVERED`: nessun controllo, perché la fattura è emessa.
 
 Le soglie usano timestamp persistiti e clock server-side; riavvii e ritardi del worker non azzerano
 l’età del caso.
@@ -406,18 +408,17 @@ registro errori e dalla copia italiana; i dettagli tecnici restano nei dati stru
 
 Le nuove cause entrano in `Controlli`, non in una pagina parallela:
 
-| Causa                                | Priorità   | Azione principale                         |
-| ------------------------------------ | ---------- | ----------------------------------------- |
-| Stato remoto incerto                 | Bloccante  | Rileggi da Aruba                          |
-| Errore di elaborazione Aruba         | Bloccante  | Apri documento e leggi l’esito            |
-| Scarto SdI                           | Bloccante  | Apri documento e leggi l’esito            |
-| Mancata consegna                     | Importante | Apri documento e gestisci il destinatario |
-| Presa in carico oltre soglia         | Importante | Aggiorna stato Aruba                      |
-| Invio a SdI senza esito oltre soglia | Importante | Aggiorna stato Aruba                      |
-| Account scaduto/sospeso              | Bloccante  | Apri Impostazioni Aruba                   |
-| Spazio esaurito                      | Bloccante  | Apri Impostazioni Aruba                   |
-| Spazio o scadenza vicini             | Importante | Apri Impostazioni Aruba                   |
-| Cooldown rate limit                  | Importante | Attendi la ripresa automatica             |
+| Causa                                | Priorità   | Azione principale              |
+| ------------------------------------ | ---------- | ------------------------------ |
+| Stato remoto incerto                 | Bloccante  | Rileggi da Aruba               |
+| Errore di elaborazione Aruba         | Bloccante  | Apri documento e leggi l’esito |
+| Scarto SdI                           | Bloccante  | Apri documento e leggi l’esito |
+| Presa in carico oltre soglia         | Importante | Aggiorna stato Aruba           |
+| Invio a SdI senza esito oltre soglia | Importante | Aggiorna stato Aruba           |
+| Account scaduto/sospeso              | Bloccante  | Apri Impostazioni Aruba        |
+| Spazio esaurito                      | Bloccante  | Apri Impostazioni Aruba        |
+| Spazio o scadenza vicini             | Importante | Apri Impostazioni Aruba        |
+| Cooldown rate limit                  | Importante | Attendi la ripresa automatica  |
 
 Ogni causa ha conteggio canonico, spiegazione, conseguenza e destinazione. La chiusura automatica
 avviene soltanto quando un nuovo readback autorevole elimina la causa.
@@ -543,7 +544,7 @@ non crea una nuova trasmissione.
 - invio massivo con successo parziale e stato incerto;
 - dettaglio con timeline da accettazione Aruba a esito SdI;
 - `Aggiorna stato Aruba` e prevenzione dei doppi click;
-- scarto, mancata consegna, oltre soglia e controlli correlati;
+- scarto, oltre soglia e controlli correlati; mancata consegna senza controllo;
 - permessi Massimo/Codex e copy italiano;
 - tastiera, responsive e assenza di overflow.
 
@@ -722,7 +723,7 @@ Il lavoro è completo soltanto se:
 - un esito sincrono non viene rappresentato come consegna SdI;
 - fallimento sincrono, errore di elaborazione Aruba e scarto SdI restano tre esiti distinti;
 - ogni invio avvia automaticamente il monitoraggio polling/readback;
-- scarto, mancata consegna, stato incerto e attesa oltre soglia producono controlli coerenti;
+- scarto, stato incerto e attesa oltre soglia producono controlli coerenti; la mancata consegna no;
 - nessun errore o crash può causare un retry fiscale cieco;
 - limiti e cooldown sono condivisi e impediscono tempeste di richieste;
 - audit e telemetria non contengono credenziali, token o payload fiscali;
@@ -745,7 +746,7 @@ Il lavoro è completo soltanto se:
 | Account o spazio non utilizzabili          | `userInfo` fresco e condiviso dal batch, avvisi e blocco fail-closed                  |
 | Batch parzialmente riuscito                | stato e recovery per documento                                                        |
 | UI sovraccarica                            | gerarchia a card, pannelli progressivi, action bar separate e verifica multi-viewport |
-| Interpretazione errata di mancata consegna | stato distinto dallo scarto, controllo dedicato ed e-mail secondo contratto esistente |
+| Interpretazione errata di mancata consegna | stato distinto dallo scarto, nessun controllo ed e-mail secondo contratto esistente   |
 | Deriva documentale                         | gate iniziale e finale su Master Plan, contratto, ADR, glossario ed evidenze          |
 
 ## 21. Fuori perimetro
