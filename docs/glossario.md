@@ -29,6 +29,7 @@
 | Differenza                         | `difference`                  | Scostamento motivato fra totale fatturabile e totale documento                                   | commissione implicita                       |
 | Pagamento pendente                 | `pending_payment`             | Incasso non ancora confermato                                                                    | non pagato definitivamente                  |
 | Non trasmettere                    | `do_not_transmit`             | Bozza archiviata senza numero né invio                                                           | elimina                                     |
+| Chiudi come corrispettivo          | `closed_as_retail_receipt`    | Non trasmettere perché la vendita è già stata certificata come corrispettivo fuori dall’app      | emetti corrispettivo, scontrino             |
 | Shopify / eBay                     | provider sorgente             | Fonte autorevole dell’ordine                                                                     | gestionale fiscale                          |
 | Cliente extra-UE                   | `NON_EU`                      | Cliente svizzero, distinto dai clienti UE e dai destinatari da verificare                        | cliente UE                                  |
 | Aruba                              | provider fiscale              | Servizio ufficiale che acquisisce documenti e rende disponibili stati e file                     | pannello, helper                            |

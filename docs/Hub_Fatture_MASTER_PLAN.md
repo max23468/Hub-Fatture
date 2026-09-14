@@ -789,6 +789,10 @@ L'utente può marcare una bozza:
 - `DO_NOT_TRANSMIT`;
 - con motivazione, per esempio annullato, test, duplicato, già fatturato altrove o altra eccezione.
 
+Quando la vendita è già stata certificata come corrispettivo fuori da HF, `Chiudi come corrispettivo`
+applica lo stesso stato con causa strutturata, motivo facoltativo ed evento di audit dedicato. HF
+registra soltanto la decisione: non emette, non trasmette e non riconcilia corrispettivi.
+
 La bozza:
 
 - non riceve numero fiscale;
@@ -1436,7 +1440,7 @@ Una stessa identità fiscale riconciliata fra Shopify ed eBay compare una sola v
 - Timeline e audit.
 - Aggiunta/rimozione di ordini compatibili prima dell'approvazione.
 - Separazione di un ordine.
-- `Non trasmettere` con motivo.
+- `Non trasmettere` con motivo, oppure `Chiudi come corrispettivo` con motivo facoltativo.
 - Anteprima fattura già valida e approvabile quando lo stato è `READY`; nessun salvataggio è richiesto se i dati proposti non vengono modificati.
 
 ### 13.6 Approvazione
@@ -2013,6 +2017,7 @@ l’ordine corrente.
 - `fiscal_profile_version`
 - `status`
 - `do_not_transmit_reason`
+- `closed_as_retail_receipt` (ammesso soltanto con `DO_NOT_TRANSMIT`)
 - `created_at`
 - `updated_at`
 - `closed_at`

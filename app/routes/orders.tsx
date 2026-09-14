@@ -620,7 +620,9 @@ function PreparationList({
                     )}`}
                   >
                     {view === "annullati"
-                      ? (billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus)
+                      ? billingCase.closed_as_retail_receipt
+                        ? copy.preparation.retailReceiptStatus
+                        : (billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus)
                       : (copy.orders.preparationPoolLabels[billingCase.operational_pool] ??
                         copy.common.unknownStatus)}
                   </span>

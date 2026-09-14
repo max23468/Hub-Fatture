@@ -47,6 +47,7 @@ export const auditActionLabels = {
   BILLING_CASE_ARUBA_IDENTITY_EVIDENCE_RECONCILED:
     "Preparazione riaperta per verificare un documento Aruba plausibile",
   BILLING_CASE_REACTIVATED: "Preparazione riattivata",
+  BILLING_CASE_RETAIL_RECEIPT: "Preparazione chiusa come corrispettivo",
   CUSTOMER_CORRECTED: "Anagrafica cliente corretta",
   CUSTOMER_IDENTITY_EXCEPTION_ACCEPTED: "Deroga anagrafica cliente accettata",
   CUSTOMER_IDENTITY_EXCEPTION_APPLIED: "Deroga anagrafica cliente applicata automaticamente",
