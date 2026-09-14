@@ -256,7 +256,6 @@ async function assertSendStillAuthorized(context: SendContext, job: ClaimedJob) 
               EXISTS (SELECT 1 FROM aruba_remote_documents AS remote
                 WHERE remote.environment = batches.environment
                   AND remote.account_reference = batches.account_reference
-                  AND remote.document_type = documents.document_type
                   AND remote.fiscal_year = documents.fiscal_year
                   AND upper(remote.series) = upper(documents.series)
                   AND btrim(remote.fiscal_number) ~ '^[0-9]+$'

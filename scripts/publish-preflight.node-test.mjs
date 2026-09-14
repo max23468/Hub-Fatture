@@ -3,11 +3,19 @@ import test from "node:test";
 import { classifyFiles } from "./change-impact.mjs";
 import {
   classifyPreflightFiles,
+  diffCheckCommands,
   preflightPlan,
   validateReleaseMetadata,
 } from "./publish-preflight.mjs";
 
 const scripts = (phase) => phase.map((entry) => entry.join(" "));
+
+test("il controllo whitespace e marcatori copre anche i commit rispetto alla base", () => {
+  assert.deepEqual(scripts(diffCheckCommands("origin/main")), [
+    "git diff --check",
+    "git diff --check origin/main HEAD",
+  ]);
+});
 
 test("il preflight documentale resta minimo", () => {
   const plan = preflightPlan(classifyFiles(["docs/runbooks/production.md"]));

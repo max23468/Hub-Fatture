@@ -85,9 +85,14 @@ operativa. L’abilitazione di `ARUBA_SUBMISSION_ENABLED=true` è separata da co
 deploy e release; anche il primo documento dovuto richiede l’approvazione prevista dal flusso.
 
 Prima dell’approvazione e nuovamente prima di ogni invio, l’inventario canonico deve essere completo,
-senza sincronizzazioni attive e aggiornato da non più di cinque minuti. La numerazione usa il
-massimo locale e remoto; il worker blocca inoltre l’invio se trova già la stessa combinazione di
-tipo documento, serie, anno e numero in qualunque stato remoto.
+senza sincronizzazioni attive e aggiornato da non più di cinque minuti. Fatture e note di credito
+condividono il progressivo della serie: la numerazione usa il massimo fra documenti approvati,
+documenti Aruba di entrambi i tipi in qualunque stato, compresi quelli emessi dal pannello, e saldo
+del profilo. Il worker blocca inoltre l’invio se trova già la stessa combinazione di serie, anno e
+numero in qualunque tipo documento e stato remoto.
+
+Le API non espongono né aggiornano il contatore dei sezionali del pannello Aruba: un documento
+emesso da Hub Fatture non fa avanzare il progressivo proposto dal pannello.
 
 Prima di ogni invio il worker valida localmente l’XML FatturaPA e rilegge atomicamente
 configurazione, pausa API, modalità, account, approvazione, manifest, revisione e hash XML. Il

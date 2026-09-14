@@ -864,6 +864,15 @@ test(
       assert.equal(projection?.comparison.recipient[0]?.field, "identity");
       assert.match(projection?.comparison.lines[0]?.source ?? "", /profilo shop/);
       assert.match(projection?.comparison.lines[0]?.source ?? "", /rimborso refund-1/);
+      await client.query(
+        `INSERT INTO aruba_remote_documents
+           (environment, account_reference, remote_id, document_type, fiscal_year, series,
+            fiscal_number, document_date, total_amount, remote_status,
+            remote_status_observed_at, metadata_digest, automatic_source, provider_group_id)
+         VALUES ('MOCK', 'synthetic-aruba-account', 'panel-invoice-numbering', 'TD01', 2026,
+           'FPR', '7', '2026-08-10', 1000, 'DELIVERED', now(), repeat('f', 64),
+           'API', 'panel-invoice-numbering')`,
+      );
       await email.setCustomerEmailMode("MANUAL", projection!.customerEmail.version, {
         id: Number(user.rows[0]!.id),
         canApprove: true,
@@ -906,6 +915,7 @@ test(
         },
       );
       assert.ok(approved.batchId);
+      assert.equal(approved.fiscalNumber, "FPR 0008/26");
       assert.deepEqual(
         (
           await client.query(

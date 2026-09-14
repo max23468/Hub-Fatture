@@ -728,7 +728,7 @@ test(
            (environment, account_reference, remote_id, document_type, fiscal_year, series,
             fiscal_number, document_date, total_amount, remote_status,
             remote_status_observed_at, metadata_digest, automatic_source, provider_group_id)
-         VALUES ('MOCK', 'synthetic-aruba-account', 'remote-numbering-guard', 'TD01', $1,
+         VALUES ('MOCK', 'synthetic-aruba-account', 'remote-numbering-guard', 'TD04', $1,
            'FPR', '10', CURRENT_DATE, 1000, 'DELIVERED', now(), repeat('f', 64),
            'API', 'remote-numbering-guard')`,
         [currentYear],

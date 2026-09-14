@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.2
+
+- Fatture e note di credito prendono il numero successivo a tutti i documenti Aruba della serie, di entrambi i tipi e in qualunque stato, compresi quelli emessi dal pannello o scartati: una nota di credito non riusa più il numero di una fattura emessa manualmente. L’invio si arresta anche se in Aruba lo stesso numero della serie appartiene a un tipo documento diverso.
+
 ## 1.4.1
 
 - Dopo l’approvazione in modalità con conferma, la preparazione mostra lo stato della trasmissione Aruba e l’azione `Trasmetti ora`, che può essere rimandata; la stessa azione compare nella riga del documento in Documenti. Una trasmissione in attesa resta confermabile e inviabile anche dopo il passaggio all’invio automatico, mentre `Crea solo il documento` o gli invii disabilitati continuano a sospenderla.

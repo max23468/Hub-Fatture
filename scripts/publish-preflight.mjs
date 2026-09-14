@@ -104,10 +104,20 @@ function run([executable, ...args]) {
   });
 }
 
+/** Come Foundation, controlla anche i commit rispetto alla base, non solo il working tree. */
+export function diffCheckCommands(base) {
+  return [
+    ["git", "diff", "--check"],
+    ["git", "diff", "--check", base, "HEAD"],
+  ];
+}
+
 async function main(argv = process.argv.slice(2)) {
   const base = argv[0] ?? "origin/main";
-  const diffCheck = spawnSync("git", ["diff", "--check"], { stdio: "inherit" });
-  if (diffCheck.status !== 0) throw new Error("git diff --check non superato");
+  for (const [executable, ...args] of diffCheckCommands(base)) {
+    const diffCheck = spawnSync(executable, args, { stdio: "inherit" });
+    if (diffCheck.status !== 0) throw new Error(`${executable} ${args.join(" ")} non superato`);
+  }
 
   const files = changedFiles(base);
   const impact = classifyPreflightFiles(files);
