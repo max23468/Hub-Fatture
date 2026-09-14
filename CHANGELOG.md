@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.3
+
+- Una fattura emessa che SdI non riesce a consegnare, come accade ai privati senza codice destinatario o PEC, non apre più il controllo «Documento non consegnato da SdI»: la mancata consegna resta visibile nel documento, continua ad abilitare la copia e-mail al cliente e il controllo eventualmente già aperto si chiude automaticamente.
+
 ## 1.4.2
 
 - Fatture e note di credito prendono il numero successivo a tutti i documenti Aruba della serie, di entrambi i tipi e in qualunque stato, compresi quelli emessi dal pannello o scartati: una nota di credito non riusa più il numero di una fattura emessa manualmente. L’invio si arresta anche se in Aruba lo stesso numero della serie appartiene a un tipo documento diverso.
