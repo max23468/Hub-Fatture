@@ -46,6 +46,7 @@ export interface DocumentListRow {
   xml_sha256: string | null;
   aruba_batch_id: string | null;
   aruba_status: string | null;
+  aruba_awaiting_confirmation: boolean;
   provider_filename: string | null;
   provider_sdi_id: string | null;
   remote_updated_at: string | null;

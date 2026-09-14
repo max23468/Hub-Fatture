@@ -1100,6 +1100,8 @@ Il polling ordinario viene ripianificato dopo dieci minuti dal completamento del
 
 La scelta è globale e rigida per approvazioni singole e massive. La UI mostra l'effetto concreto ma non offre override locali. Se la modalità richiede invio e il canale non è disponibile, l'unico downgrade è la conferma esplicita `Approva e crea solo documento`.
 
+Il cambio di modalità vale per le approvazioni successive. Un batch in attesa di `Trasmetti ora` resta confermabile dalla preparazione approvata o da Documenti anche dopo il passaggio a `Invio automatico dopo approvazione`; `Crea solo il documento` o la disattivazione degli invii sospendono conferma e invio. Un batch creato in modalità automatica richiede invece che la modalità automatica sia ancora attiva al momento dell'invio.
+
 ### 10.4 Flusso atteso
 
 1. HF genera e valida localmente gli XML definitivi.

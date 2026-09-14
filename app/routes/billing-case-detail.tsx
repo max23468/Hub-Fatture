@@ -1,6 +1,6 @@
-import { CircleCheck, FileCode2 } from "lucide-react";
+import { CircleCheck, FileCode2, Send } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { Form, Link, useActionData, useLoaderData } from "react-router";
+import { Form, Link, useActionData, useLoaderData, useNavigation } from "react-router";
 import type { Route } from "./+types/billing-case-detail";
 
 import { arubaInventoryApprovalState } from "../../src/aruba-inventory.ts";
@@ -773,6 +773,54 @@ function ApprovalCard({
   );
 }
 
+type ArubaTransmission = NonNullable<InvoiceProjection["arubaTransmission"]>;
+
+function TransmissionCard({
+  canApprove,
+  csrfToken,
+  transmission,
+}: {
+  canApprove: boolean;
+  csrfToken: string;
+  transmission: ArubaTransmission;
+}) {
+  const navigation = useNavigation();
+  const pending = navigation.formData?.get("intent") === "confirm-aruba-api-batch";
+  const status =
+    copy.documents.arubaDocumentStatus[transmission.status] ??
+    copy.documents.arubaBatchStatus[transmission.status] ??
+    copy.common.unavailable;
+  return (
+    <section className="card preparation-transmission">
+      <DetailSectionHeader
+        description={status}
+        icon={<Send size={22} strokeWidth={1.8} />}
+        title={copy.document.confirmHelper}
+      />
+      {transmission.awaitingConfirmation && canApprove ? (
+        transmission.confirmable ? (
+          <Form method="post">
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="confirm-aruba-api-batch" />
+            <input type="hidden" name="batchId" value={transmission.batchId} />
+            {transmission.documentCount > 1 ? (
+              <p className="warning">
+                {copy.document.transmissionBatchHelp(transmission.documentCount)}
+              </p>
+            ) : null}
+            <p>{copy.document.transmissionDeferHelp}</p>
+            <button className="button" disabled={pending} type="submit">
+              {copy.documents.confirmApiTransmission}
+            </button>
+          </Form>
+        ) : (
+          <p className="warning">{copy.document.transmissionUnavailable}</p>
+        )
+      ) : null}
+    </section>
+  );
+}
+
 function InvoiceDocument({
   canApprove,
   caseReady,
@@ -803,8 +851,11 @@ function InvoiceDocument({
     arubaInventoryApprovalState(projection.arubaInventory) !== "BLOCKED";
   const showInventory = !projection.approved && inventoryNeedsAttention;
   const showApproval = !projection.approved;
+  const transmission = projection.approved ? projection.arubaTransmission : null;
   const workflowLayout = projection.approved
-    ? "preparation-workflow-grid--activity-only"
+    ? transmission
+      ? "preparation-workflow-grid--with-transmission"
+      : "preparation-workflow-grid--activity-only"
     : showInventory
       ? canShowApproval
         ? "preparation-workflow-grid--with-inventory preparation-workflow-grid--expanded-approval"
@@ -832,6 +883,13 @@ function InvoiceDocument({
             hasUnsavedChanges={hasUnsavedChanges}
             projection={projection}
             publicNumber={publicNumber}
+          />
+        ) : null}
+        {transmission ? (
+          <TransmissionCard
+            canApprove={canApprove}
+            csrfToken={csrfToken}
+            transmission={transmission}
           />
         ) : null}
         {activity}

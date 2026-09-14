@@ -3,6 +3,7 @@ import type { Route } from "./+types/billing-case-detail";
 
 import { actionResult } from "../action";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
+import { confirmArubaApiBatch } from "../../src/db/aruba-api-outbound.server.ts";
 import {
   approveInvoice,
   getInvoiceProjection,
@@ -75,6 +76,9 @@ function runIntent(
       },
       actor,
     );
+  }
+  if (intent === "confirm-aruba-api-batch") {
+    return confirmArubaApiBatch(form.get("batchId") ?? "", actor);
   }
   if (intent === "do-not-transmit") {
     return updateBillingCaseTransmission(caseId, form.get("reason") ?? "", revision, actor);

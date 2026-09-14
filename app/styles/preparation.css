@@ -195,6 +195,17 @@
   grid-template-areas: "activity";
 }
 
+.preparation-workflow-grid--with-transmission {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "transmission"
+    "activity";
+}
+
+.preparation-transmission {
+  grid-area: transmission;
+}
+
 .preparation-inventory {
   grid-area: inventory;
 }
@@ -418,6 +429,12 @@
 
   .preparation-workflow-grid--expanded-approval .preparation-inventory {
     display: block;
+  }
+
+  .preparation-workflow-grid--with-transmission {
+    grid-template-areas:
+      "transmission"
+      "activity";
   }
 }
 

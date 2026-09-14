@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  arubaBatchTransmissionAllowed,
   arubaMonthlyTransmissionUsage,
   effectiveArubaMode,
   manifestSha256,
@@ -37,6 +38,24 @@ test("manifest API e parser dei file Aruba restano fail-closed", async () => {
   assert.equal(effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", false), "DOCUMENT_ONLY");
   assert.equal(effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", true), "AUTOMATIC_AFTER_APPROVAL");
   assert.equal(effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", false), "DOCUMENT_ONLY");
+  assert.equal(
+    arubaBatchTransmissionAllowed("CONTEXTUAL_CONFIRMATION", "CONTEXTUAL_CONFIRMATION"),
+    true,
+  );
+  assert.equal(
+    arubaBatchTransmissionAllowed("CONTEXTUAL_CONFIRMATION", "AUTOMATIC_AFTER_APPROVAL"),
+    true,
+  );
+  assert.equal(arubaBatchTransmissionAllowed("CONTEXTUAL_CONFIRMATION", "DOCUMENT_ONLY"), false);
+  assert.equal(
+    arubaBatchTransmissionAllowed("AUTOMATIC_AFTER_APPROVAL", "AUTOMATIC_AFTER_APPROVAL"),
+    true,
+  );
+  assert.equal(
+    arubaBatchTransmissionAllowed("AUTOMATIC_AFTER_APPROVAL", "CONTEXTUAL_CONFIRMATION"),
+    false,
+  );
+  assert.equal(arubaBatchTransmissionAllowed("DOCUMENT_ONLY", "AUTOMATIC_AFTER_APPROVAL"), false);
   assert.equal(arubaMonthlyTransmissionUsage(399).warning, null);
   assert.deepEqual(arubaMonthlyTransmissionUsage(400), {
     accepted: 400,

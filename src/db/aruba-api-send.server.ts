@@ -2,7 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
-import { ARUBA_UPLOAD_MAX_BYTES, effectiveArubaMode, type ArubaMode } from "../aruba.ts";
+import {
+  ARUBA_UPLOAD_MAX_BYTES,
+  arubaBatchTransmissionAllowed,
+  effectiveArubaMode,
+  type ArubaMode,
+} from "../aruba.ts";
 import { arubaInventoryBlocksAllApprovals } from "../aruba-inventory.ts";
 import { getConfig } from "../config.server.ts";
 import { AppError } from "../errors.ts";
@@ -152,8 +157,7 @@ async function prepareSend(job: ClaimedJob): Promise<SendContext> {
       !config.ARUBA_SUBMISSION_ENABLED ||
       current.environment !== expectedEnvironment ||
       current.account_reference !== config.ARUBA_ACCOUNT_REFERENCE ||
-      current.mode === "DOCUMENT_ONLY" ||
-      effectiveArubaMode(configuredMode, true) !== current.mode ||
+      !arubaBatchTransmissionAllowed(current.mode, effectiveArubaMode(configuredMode, true)) ||
       current.document_status !== "APPROVED" ||
       current.document_type !== "TD01" ||
       current.current_revision !== current.document_revision ||
@@ -299,8 +303,7 @@ async function assertSendStillAuthorized(context: SendContext, job: ClaimedJob) 
       row.account_reference !== config.ARUBA_ACCOUNT_REFERENCE ||
       row.connection_status !== "CONNECTED" ||
       row.api_paused ||
-      row.mode === "DOCUMENT_ONLY" ||
-      effectiveArubaMode(configuredMode, true) !== row.mode ||
+      !arubaBatchTransmissionAllowed(row.mode, effectiveArubaMode(configuredMode, true)) ||
       row.document_status !== "APPROVED" ||
       row.document_type !== "TD01" ||
       row.current_revision !== row.document_revision ||

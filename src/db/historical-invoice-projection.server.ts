@@ -184,6 +184,7 @@ export async function getHistoricalInvoiceProjection(
     arubaDowngradeRequired: arubaSettings.mode.value !== arubaSettings.effectiveMode,
     arubaInventory,
     arubaApprovalBlocked: arubaInventoryBlocksAllApprovals(arubaInventory),
+    arubaTransmission: null,
     customerEmail: await customerEmailPreview(caseId),
   };
 }
