@@ -757,6 +757,13 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     .click();
   await page.getByRole("button", { name: "Riattiva preparazione" }).click();
   await expect(page.getByRole("button", { name: "Non trasmettere" })).toBeVisible();
+  // Il corrispettivo chiude la preparazione anche senza motivo e resta riattivabile.
+  await page.getByRole("button", { name: "Chiudi come corrispettivo" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Preparazione chiusa come corrispettivo" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Riattiva preparazione" }).click();
+  await expect(page.getByRole("button", { name: "Non trasmettere" })).toBeVisible();
 
   // Separazione di un ordine e reinserimento dello stesso ordine compatibile.
   await page.getByRole("button", { name: "Separa dalla preparazione" }).first().click();

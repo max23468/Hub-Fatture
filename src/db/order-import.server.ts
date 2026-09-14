@@ -289,7 +289,7 @@ async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
               FROM audit_events
               WHERE entity_type = 'BILLING_CASE'
                 AND entity_id = orders.billing_case_id::text
-                AND action = 'BILLING_CASE_DO_NOT_TRANSMIT'
+                AND action IN ('BILLING_CASE_DO_NOT_TRANSMIT', 'BILLING_CASE_RETAIL_RECEIPT')
               ORDER BY id DESC
               LIMIT 1
             ), false) AS billing_case_do_not_transmit_automatic,

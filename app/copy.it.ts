@@ -482,8 +482,12 @@ export const copy = {
     currency: "Valuta",
     orders: "Ordini",
     reason: "Motivo della scelta",
-    reasonHelp: "Spiega perché questa preparazione non deve diventare una fattura.",
+    reasonHelp:
+      "Obbligatorio per “Non trasmettere”. Se la vendita è già stata emessa come corrispettivo è facoltativo.",
     doNotTransmit: "Non trasmettere",
+    retailReceipt: "Chiudi come corrispettivo",
+    retailReceiptStatus: "Chiusa come corrispettivo",
+    retailReceiptNotice: "Preparazione chiusa come corrispettivo: non diventerà una fattura.",
     reactivate: "Riattiva preparazione",
     reviewWarning: "Prima di proseguire, controlla i dati indicati come incompleti o modificati.",
     paymentPendingWarning:

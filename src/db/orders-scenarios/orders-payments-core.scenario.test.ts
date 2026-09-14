@@ -465,6 +465,62 @@ export async function runPaymentsCoreScenario(context: OrdersTestContext) {
     ).rows[0],
     { status: "NEEDS_REVIEW", do_not_transmit_reason: null, audit_count: 2 },
   );
+  assert.equal(
+    await orders.updateBillingCaseTransmission(
+      manuallyClosedCaseId,
+      "",
+      await caseRevision(manuallyClosedCaseId),
+      { id: 1, requestId: "test-retail-receipt" },
+      true,
+    ),
+    "DO_NOT_TRANSMIT",
+  );
+  assert.deepEqual(
+    (
+      await database.getPool().query(
+        `SELECT status, do_not_transmit_reason, closed_as_retail_receipt,
+                (SELECT count(*)::int FROM audit_events
+                 WHERE entity_type = 'BILLING_CASE'
+                   AND entity_id = billing_cases.id::text
+                   AND action = 'BILLING_CASE_RETAIL_RECEIPT') AS audit_count
+         FROM billing_cases WHERE id = $1`,
+        [manuallyClosedCaseId],
+      )
+    ).rows[0],
+    {
+      status: "DO_NOT_TRANSMIT",
+      do_not_transmit_reason: null,
+      closed_as_retail_receipt: true,
+      audit_count: 1,
+    },
+  );
+  await assert.rejects(
+    database
+      .getPool()
+      .query(`UPDATE billing_cases SET status = 'NEEDS_REVIEW' WHERE id = $1`, [
+        manuallyClosedCaseId,
+      ]),
+    { code: "23514" },
+  );
+  assert.equal(
+    await orders.updateBillingCaseTransmission(
+      manuallyClosedCaseId,
+      null,
+      await caseRevision(manuallyClosedCaseId),
+      { id: 1, requestId: "test-retail-receipt-reactivation" },
+    ),
+    "NEEDS_REVIEW",
+  );
+  assert.equal(
+    (
+      await database
+        .getPool()
+        .query(`SELECT closed_as_retail_receipt FROM billing_cases WHERE id = $1`, [
+          manuallyClosedCaseId,
+        ])
+    ).rows[0].closed_as_retail_receipt,
+    false,
+  );
 
   const reorderedCollections = structuredClone(fixture[0]);
   reorderedCollections.externalOrderId = "shop-order-reordered-collections";

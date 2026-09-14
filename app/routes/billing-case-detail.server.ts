@@ -80,8 +80,14 @@ function runIntent(
   if (intent === "confirm-aruba-api-batch") {
     return confirmArubaApiBatch(form.get("batchId") ?? "", actor);
   }
-  if (intent === "do-not-transmit") {
-    return updateBillingCaseTransmission(caseId, form.get("reason") ?? "", revision, actor);
+  if (intent === "do-not-transmit" || intent === "retail-receipt") {
+    return updateBillingCaseTransmission(
+      caseId,
+      form.get("reason") ?? "",
+      revision,
+      actor,
+      intent === "retail-receipt",
+    );
   }
   if (intent === "reactivate") {
     return updateBillingCaseTransmission(caseId, null, revision, actor);

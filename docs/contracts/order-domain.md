@@ -26,6 +26,7 @@ Sono accettati soltanto importi decimali rappresentabili esattamente in centesim
 - Ogni conflitto conserva in modo immutabile snapshot normalizzato precedente e corrente. Un annullamento o rimborso prima dell’emissione porta invece la preparazione a `DO_NOT_TRANSMIT` con motivazione e audit.
 - Quando un ordine annullato o rimborsato viene rimosso da una preparazione, ogni ordine residuo conserva soltanto il proprio requisito di verifica: lo stato `NEEDS_REVIEW` del vecchio raggruppamento non si propaga ai fratelli sani.
 - Le preparazioni `DO_NOT_TRANSMIT` restano consultabili nell’archivio anche quando una successiva rettifica sposta tutti gli ordini in una nuova preparazione. La riattivazione è proposta soltanto quando contengono ordini compatibili e non esiste già un altro raggruppamento aperto per lo stesso cliente, giorno e valuta; eventuali anagrafiche discordanti mantengono la preparazione in `NEEDS_REVIEW`.
+- `Chiudi come corrispettivo` porta una preparazione aperta a `DO_NOT_TRANSMIT` con `closed_as_retail_receipt`, motivo facoltativo ed evento `BILLING_CASE_RETAIL_RECEIPT`. Un vincolo del database ammette la causa soltanto in `DO_NOT_TRANSMIT` e la riattivazione la azzera. Hub Fatture registra la decisione ma non emette né trasmette corrispettivi.
 
 ## Stato della preparazione e correzioni
 

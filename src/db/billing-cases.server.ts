@@ -126,6 +126,7 @@ interface BillingCaseDetailRow {
   currency: string;
   customer_name: string;
   do_not_transmit_reason: string | null;
+  closed_as_retail_receipt: boolean;
   revision: number;
   customer_corrected_at: string | null;
   review_required: boolean;
@@ -195,13 +196,18 @@ export async function updateBillingCaseTransmission(
   reason: string | null,
   expectedRevision: unknown,
   actor: Actor,
+  retailReceipt = false,
 ) {
   if (!isDatabaseId(id)) return null;
   const revision = parseDatabaseRevision(expectedRevision);
+  const archiving = reason !== null;
   const normalizedReason = reason?.trim() || null;
+  // Il corrispettivo è già la motivazione: la nota resta facoltativa, ma se presente è validata.
   if (
-    reason !== null &&
-    (!normalizedReason || normalizedReason.length > 500 || containsNullByte(normalizedReason))
+    archiving &&
+    ((!normalizedReason && !retailReceipt) ||
+      (normalizedReason !== null &&
+        (normalizedReason.length > 500 || containsNullByte(normalizedReason))))
   ) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
@@ -209,25 +215,28 @@ export async function updateBillingCaseTransmission(
     await serializeOrderMutations(client);
     const current = await lockBillingCase(client, id, revision);
     if (!current) return null;
-    if (normalizedReason) {
+    if (archiving) {
       if (!editableStatuses.includes(current.status)) {
         throw new AppError("CONFLICT_REVISION", 409);
       }
       await client.query(
         `UPDATE billing_cases
          SET status = 'DO_NOT_TRANSMIT', do_not_transmit_reason = $2,
-             revision = revision + 1, updated_at = now()
+             closed_as_retail_receipt = $3, revision = revision + 1, updated_at = now()
          WHERE id = $1`,
-        [id, normalizedReason],
+        [id, normalizedReason, retailReceipt],
       );
       await writeAudit(client, {
         actorType: "ADMIN",
         actorId: String(actor.id),
-        action: "BILLING_CASE_DO_NOT_TRANSMIT",
+        action: retailReceipt ? "BILLING_CASE_RETAIL_RECEIPT" : "BILLING_CASE_DO_NOT_TRANSMIT",
         eventClass: "CRITICAL",
         entityType: "BILLING_CASE",
         entityId: id,
-        metadata: { billingCaseId: id, reason: normalizedReason },
+        metadata: {
+          billingCaseId: id,
+          ...(normalizedReason ? { reason: normalizedReason } : {}),
+        },
         reason: normalizedReason,
         requestId: actor.requestId,
       });
@@ -239,7 +248,8 @@ export async function updateBillingCaseTransmission(
     if (current.has_other_open_case) throw new AppError("CONFLICT_REVISION", 409);
     await client.query(
       `UPDATE billing_cases
-       SET status = 'NEEDS_REVIEW', do_not_transmit_reason = NULL, updated_at = now()
+       SET status = 'NEEDS_REVIEW', do_not_transmit_reason = NULL,
+           closed_as_retail_receipt = false, updated_at = now()
        WHERE id = $1`,
       [id],
     );
@@ -605,6 +615,7 @@ export async function listBillingCases(
     local_order_date: string;
     first_order_created_at: string | null;
     status: string;
+    closed_as_retail_receipt: boolean;
     operational_pool: OpenBillingCasePool;
     reason_codes: OpenBillingCaseReasonCode[];
     customer_name: string;
@@ -614,7 +625,8 @@ export async function listBillingCases(
   }>(
     `SELECT billing_cases.id, billing_cases.public_number, billing_cases.local_order_date::text,
             min(orders.created_at_source)::text AS first_order_created_at,
-            billing_cases.status, ${operationalPoolSql} AS operational_pool,
+            billing_cases.status, billing_cases.closed_as_retail_receipt,
+            ${operationalPoolSql} AS operational_pool,
             ${reasonCodesSql} AS reason_codes,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
             string_agg(

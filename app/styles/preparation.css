@@ -149,8 +149,15 @@
   margin: var(--space-2) 0 0;
 }
 
-.preparation-overview__archive-form .button {
+.preparation-overview__archive-actions {
+  display: flex;
   grid-area: button;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.preparation-overview__archive-form .button {
   min-width: 13rem;
 }
 
@@ -448,6 +455,10 @@
     grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
     gap: var(--space-4);
+  }
+
+  .preparation-overview__archive-actions {
+    flex-direction: column;
   }
 
   .preparation-overview__archive-form .button {

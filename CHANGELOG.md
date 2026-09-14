@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.4
+
+- Una preparazione aperta, pronta o da verificare, può essere chiusa con `Chiudi come corrispettivo` quando la vendita è già stata certificata come corrispettivo: non riceve un numero, il motivo è facoltativo e l’archivio, il dettaglio e il registro attività la mostrano come chiusa come corrispettivo. Resta riattivabile come `Non trasmettere`.
+
 ## 1.4.3
 
 - Una fattura emessa che SdI non riesce a consegnare, come accade ai privati senza codice destinatario o PEC, non apre più il controllo «Documento non consegnato da SdI»: la mancata consegna resta visibile nel documento, continua ad abilitare la copia e-mail al cliente e il controllo eventualmente già aperto si chiude automaticamente.

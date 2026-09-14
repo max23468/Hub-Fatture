@@ -982,7 +982,11 @@ function PreparationNotices({
       ) : null}
       {billingCase.status === "DO_NOT_TRANSMIT" ? (
         <p className="warning" role="status">
-          {billingCase.do_not_transmit_reason ?? copy.preparation.notTransmittedDefault}
+          {billingCase.closed_as_retail_receipt
+            ? [copy.preparation.retailReceiptNotice, billingCase.do_not_transmit_reason]
+                .filter(Boolean)
+                .join(" ")
+            : (billingCase.do_not_transmit_reason ?? copy.preparation.notTransmittedDefault)}
         </p>
       ) : null}
     </>
@@ -1090,7 +1094,6 @@ function PreparationTransmissionAction({
     <Form method="post" className="preparation-overview__action preparation-overview__archive-form">
       <input type="hidden" name="csrf" value={csrfToken} />
       <input type="hidden" name="revision" value={billingCase.revision} />
-      <input type="hidden" name="intent" value="do-not-transmit" />
       <label className="preparation-overview__archive-field">
         {copy.preparation.reason}
         <input
@@ -1109,9 +1112,25 @@ function PreparationTransmissionAction({
           {errorMessage}
         </p>
       ) : null}
-      <button className="button button--warning" type="submit">
-        {copy.preparation.doNotTransmit}
-      </button>
+      <div className="preparation-overview__archive-actions">
+        <button
+          className="button button--secondary"
+          formNoValidate
+          name="intent"
+          type="submit"
+          value="retail-receipt"
+        >
+          {copy.preparation.retailReceipt}
+        </button>
+        <button
+          className="button button--warning"
+          name="intent"
+          type="submit"
+          value="do-not-transmit"
+        >
+          {copy.preparation.doNotTransmit}
+        </button>
+      </div>
     </Form>
   );
 }
@@ -1141,7 +1160,9 @@ function PreparationOverview({
             <dd>
               {operationalPool
                 ? (copy.orders.preparationPoolLabels[operationalPool] ?? copy.common.unknownStatus)
-                : (billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus)}
+                : billingCase.closed_as_retail_receipt
+                  ? copy.preparation.retailReceiptStatus
+                  : (billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus)}
             </dd>
           </div>
           <div>
