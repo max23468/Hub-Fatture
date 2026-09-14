@@ -401,7 +401,7 @@ export async function requestArubaApiSync(actor?: ArubaApiActor) {
       !current.credentials_verified_at ||
       current.api_paused ||
       !current.inbound_enabled ||
-      current.status !== "CONNECTED"
+      !["CONNECTED", "ERROR"].includes(current.status)
     ) {
       throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
     }

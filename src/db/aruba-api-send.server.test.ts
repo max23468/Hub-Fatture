@@ -403,6 +403,48 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
     assert.equal(unknownAudits.rows[0]!.count, 3);
     assert.equal(sendCalls, 8);
 
+    await pool.query(
+      `UPDATE settings SET value_json = '"CONTEXTUAL_CONFIRMATION"'::jsonb WHERE key = 'aruba_mode'`,
+    );
+    const contextualBatch = await createBatch(["CONFERMA"], 1015);
+    const pausedBatch = await createBatch(["SOSPESO"], 1016);
+    await pool.query(
+      `UPDATE settings SET value_json = '"AUTOMATIC_AFTER_APPROVAL"'::jsonb WHERE key = 'aruba_mode'`,
+    );
+    const contextualDocumentId = contextualBatch.documents[0]!.id;
+    assert.deepEqual(
+      await outbound.getDocumentArubaTransmission(contextualDocumentId, "AUTOMATIC_AFTER_APPROVAL"),
+      {
+        batchId: contextualBatch.batchId,
+        status: "AWAITING_CONFIRMATION",
+        documentCount: 1,
+        awaitingConfirmation: true,
+        confirmable: true,
+      },
+    );
+    assert.equal(
+      (await outbound.getDocumentArubaTransmission(contextualDocumentId, "DOCUMENT_ONLY"))
+        ?.confirmable,
+      false,
+    );
+    const confirmActor = { id: 1, canApprove: true, requestId: "test-contextual-after-automatic" };
+    assert.deepEqual(await outbound.confirmArubaApiBatch(contextualBatch.batchId, confirmActor), {
+      queued: 1,
+    });
+    const callsBeforeContextualSend = sendCalls;
+    assert.equal((await completeNext("aruba_send_submission")).accepted, true);
+    assert.equal(sendCalls, callsBeforeContextualSend + 1);
+    await pool.query(
+      `UPDATE settings SET value_json = '"DOCUMENT_ONLY"'::jsonb WHERE key = 'aruba_mode'`,
+    );
+    await assert.rejects(
+      outbound.confirmArubaApiBatch(pausedBatch.batchId, confirmActor),
+      (error: unknown) => (error as { code?: string }).code === "ARUBA_SUBMISSION_PAUSED",
+    );
+    await pool.query(
+      `UPDATE settings SET value_json = '"AUTOMATIC_AFTER_APPROVAL"'::jsonb WHERE key = 'aruba_mode'`,
+    );
+
     const collisionBatch = await createBatch(["ORDINECONFLITTO"], 1012);
     await pool.query(
       `INSERT INTO orders (provider, external_account_id, external_order_id, display_number,

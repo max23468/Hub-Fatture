@@ -34,6 +34,13 @@ export function effectiveArubaMode(configured: ArubaMode, submissionEnabled: boo
   return !submissionEnabled ? "DOCUMENT_ONLY" : configured;
 }
 
+// Un batch confermato esplicitamente resta trasmissibile anche dopo il passaggio
+// all'invio automatico; un batch automatico richiede ancora la modalità automatica.
+export function arubaBatchTransmissionAllowed(batchMode: ArubaMode, effectiveMode: ArubaMode) {
+  if (batchMode === "DOCUMENT_ONLY" || effectiveMode === "DOCUMENT_ONLY") return false;
+  return batchMode === "CONTEXTUAL_CONFIRMATION" || effectiveMode === batchMode;
+}
+
 export function arubaMonthlyTransmissionUsage(accepted: number) {
   const safeAccepted = Number.isInteger(accepted) && accepted > 0 ? accepted : 0;
   return {

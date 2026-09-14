@@ -905,6 +905,15 @@ export async function runArubaApiInboundJob(
     if (!(error instanceof AppError)) {
       // Il messaggio può contenere SQL o dati fiscali: si registrano soltanto classe e codice.
       const code = (error as { code?: unknown } | null)?.code;
+      // Le sole righe di frame identificano il punto di rottura senza riportare il messaggio.
+      const frames =
+        error instanceof Error && typeof error.stack === "string"
+          ? error.stack
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => /^at .+:\d+:\d+\)?$/.test(line))
+              .slice(0, 8)
+          : [];
       console.error(
         JSON.stringify({
           event: "aruba_inbound_unexpected_error",
@@ -912,6 +921,7 @@ export async function runArubaApiInboundJob(
           runId: run.id,
           errorClass: error instanceof Error ? error.constructor.name : typeof error,
           errorCode: typeof code === "string" && /^[A-Z0-9_]{1,40}$/.test(code) ? code : null,
+          frames,
         }),
       );
     }

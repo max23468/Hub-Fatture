@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   ARUBA_UPLOAD_MAX_BATCH_BYTES,
+  arubaBatchTransmissionAllowed,
   arubaManifestDocumentSchema,
   arubaMonthlyTransmissionUsage,
   effectiveArubaMode,
@@ -185,7 +186,10 @@ export async function confirmArubaApiBatch(batchId: string, actor: ArubaOutbound
     if (
       current.environment !== environment ||
       current.account_reference !== config.ARUBA_ACCOUNT_REFERENCE ||
-      effectiveArubaMode(configuredMode, config.ARUBA_SUBMISSION_ENABLED) !== current.mode ||
+      !arubaBatchTransmissionAllowed(
+        current.mode,
+        effectiveArubaMode(configuredMode, config.ARUBA_SUBMISSION_ENABLED),
+      ) ||
       !(await arubaOutboundConnectionReady(client, environment, config.ARUBA_ACCOUNT_REFERENCE))
     ) {
       throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
@@ -215,6 +219,44 @@ export async function confirmArubaApiBatch(batchId: string, actor: ArubaOutbound
     });
     return { queued: submissions.rows.length };
   });
+}
+
+export async function getDocumentArubaTransmission(documentId: string, effectiveMode: ArubaMode) {
+  const result = await getPool().query<{
+    id: string;
+    mode: ArubaMode;
+    batch_status: string;
+    transport: string;
+    document_count: number;
+    submission_status: string | null;
+  }>(
+    `SELECT batches.id, batches.mode, batches.status AS batch_status, batches.transport,
+            batches.document_count, submissions.status AS submission_status
+     FROM aruba_batch_documents AS batch_documents
+     JOIN aruba_batches AS batches ON batches.id = batch_documents.batch_id
+     LEFT JOIN aruba_submissions AS submissions
+       ON submissions.batch_id = batches.id
+      AND submissions.document_id = batch_documents.document_id
+      AND submissions.attempt_number = batches.attempt_number
+     WHERE batch_documents.document_id = $1
+     ORDER BY batches.created_at DESC LIMIT 1`,
+    [documentId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  const awaitingConfirmation =
+    row.transport === "API" && row.batch_status === "AWAITING_CONFIRMATION";
+  return {
+    batchId: row.id,
+    // Un invio ancora PENDING non ha un esito proprio: vale lo stato del batch.
+    status:
+      row.submission_status && row.submission_status !== "PENDING"
+        ? row.submission_status
+        : row.batch_status,
+    documentCount: row.document_count,
+    awaitingConfirmation,
+    confirmable: awaitingConfirmation && arubaBatchTransmissionAllowed(row.mode, effectiveMode),
+  };
 }
 
 export async function runArubaApiOutboundJob(

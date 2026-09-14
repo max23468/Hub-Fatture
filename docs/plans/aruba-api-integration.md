@@ -233,6 +233,10 @@ L’approvazione non è mai automatica. Se la modalità richiede trasmissione ma
 o non sano, la UI offre soltanto la conferma esplicita `Approva e crea solo documento`; non accoda
 silenziosamente un invio futuro.
 
+Un cambio di modalità vale per le approvazioni successive: un batch in attesa di `Trasmetti ora` resta
+confermabile anche dopo il passaggio all’invio automatico, mentre `Crea solo il documento` o gli invii
+disabilitati sospendono conferma e invio. Un batch automatico richiede ancora la modalità automatica.
+
 ### 7.2 Manifest e dry-run
 
 Ogni batch congela documenti, revisioni, numeri, XML, hash e importi. Prima di ogni upload/invio il

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1
+
+- Dopo l’approvazione in modalità con conferma, la preparazione mostra lo stato della trasmissione Aruba e l’azione `Trasmetti ora`, che può essere rimandata; la stessa azione compare nella riga del documento in Documenti. Una trasmissione in attesa resta confermabile e inviabile anche dopo il passaggio all’invio automatico, mentre `Crea solo il documento` o gli invii disabilitati continuano a sospenderla.
+- Un errore imprevisto della sincronizzazione Aruba non ferma più il polling: il giro successivo parte da solo alla cadenza ordinaria, senza `Riprova ora`, e approvazione e numerazione restano bloccate fino a una lettura completata. Fallimenti ripetuti della stessa sincronizzazione restano un solo controllo e il log dell’errore indica le funzioni coinvolte senza riportare messaggi o dati.
+
 ## 1.4.0
 
 - La ricerca globale e la lista Ordini condividono i dati correnti del cliente, compresi telefono e identificativi fiscali. I risultati dei Controlli possono essere aperti nella vista completa senza perderne la ricerca.

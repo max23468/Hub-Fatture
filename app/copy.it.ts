@@ -616,6 +616,11 @@ export const copy = {
     confirmProfile: "Profilo fiscale",
     confirmPayment: "Pagamento",
     confirmHelper: "Trasmissione Aruba",
+    transmissionDeferHelp: "Puoi rimandare: la conferma resta disponibile qui e in Documenti.",
+    transmissionBatchHelp: (count: number) =>
+      `La conferma trasmette insieme i ${count} documenti approvati nello stesso passaggio.`,
+    transmissionUnavailable:
+      "La modalità Aruba attuale non consente di avviare la trasmissione. Verifica le Impostazioni.",
     customerEmailTitle: "Copia e-mail al cliente",
     emailMode: "Modalità",
     emailAutomatic: "Automatica dopo l’esito SdI",
@@ -826,7 +831,7 @@ export const copy = {
       return `${count} ${count === 1 ? "documento" : "documenti"} · ${label}`;
     },
     lastReadback: (value: string) => `ultimo readback ${value}`,
-    confirmApiTransmission: "Conferma e invia ad Aruba",
+    confirmApiTransmission: "Trasmetti ora",
     retryBatch: "Prepara nuovo tentativo",
     arubaBatchStatus: {
       ...arubaTransmissionStatusCopy,

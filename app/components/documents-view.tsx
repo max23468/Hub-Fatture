@@ -480,6 +480,7 @@ function DocumentTools({
     canPrepareRedactedEmail: boolean;
     canRetryEmail: boolean;
     canRefreshAruba: boolean;
+    canConfirmTransmission: boolean;
     emailRedacted: boolean;
   };
   csrfToken: string;
@@ -488,12 +489,21 @@ function DocumentTools({
   fileCount: number;
   officialFiles: OfficialFile[];
 }) {
-  const { canImportFile, canPrepareRedactedEmail, canRetryEmail, canRefreshAruba, emailRedacted } =
-    capabilities;
+  const {
+    canConfirmTransmission,
+    canImportFile,
+    canPrepareRedactedEmail,
+    canRetryEmail,
+    canRefreshAruba,
+    emailRedacted,
+  } = capabilities;
   const navigation = useNavigation();
   const refreshPending =
     navigation.formData?.get("intent") === "refresh-aruba-status" &&
     navigation.formData.get("documentId") === document.id;
+  const confirmPending =
+    navigation.formData?.get("intent") === "confirm-aruba-api-batch" &&
+    navigation.formData.get("batchId") === document.aruba_batch_id;
   const hasArubaStatus = Boolean(document.aruba_batch_id && document.aruba_status);
   return (
     <details className="document-row__tools">
@@ -503,9 +513,7 @@ function DocumentTools({
           {hasArubaStatus ? copy.documents.arubaDetail : copy.documents.filesAndActions}
         </span>
         <small>
-          {hasArubaStatus
-            ? (copy.documents.arubaDocumentStatus[document.aruba_status!] ?? document.aruba_status)
-            : copy.documents.availableFiles(fileCount)}
+          {hasArubaStatus ? arubaStatusLabel(document) : copy.documents.availableFiles(fileCount)}
         </small>
       </summary>
       <div className="document-row__tools-content">
@@ -522,6 +530,16 @@ function DocumentTools({
           <section aria-labelledby={`document-actions-${document.id}`}>
             <h3 id={`document-actions-${document.id}`}>{copy.documents.arubaActions}</h3>
             <div className="document-tool-actions">
+              {canConfirmTransmission ? (
+                <Form method="post">
+                  <input name="csrf" type="hidden" value={csrfToken} />
+                  <input name="intent" type="hidden" value="confirm-aruba-api-batch" />
+                  <input name="batchId" type="hidden" value={document.aruba_batch_id ?? ""} />
+                  <button className="button" disabled={confirmPending} type="submit">
+                    {copy.documents.confirmApiTransmission}
+                  </button>
+                </Form>
+              ) : null}
               {canRefreshAruba ? (
                 <Form method="post">
                   <input name="csrf" type="hidden" value={csrfToken} />
@@ -556,10 +574,17 @@ function DocumentTools({
   );
 }
 
-function DocumentArubaStatus({ document }: { document: DocumentRowData }) {
-  const status = document.aruba_status
+function arubaStatusLabel(document: DocumentRowData) {
+  if (document.aruba_awaiting_confirmation) {
+    return copy.documents.arubaBatchStatus.AWAITING_CONFIRMATION ?? copy.common.unavailable;
+  }
+  return document.aruba_status
     ? (copy.documents.arubaDocumentStatus[document.aruba_status] ?? document.aruba_status)
     : copy.common.unavailable;
+}
+
+function DocumentArubaStatus({ document }: { document: DocumentRowData }) {
+  const status = arubaStatusLabel(document);
   const hasIdentifiers = Boolean(document.provider_filename || document.provider_sdi_id);
   return (
     <section className="document-aruba-status" aria-labelledby={`aruba-status-${document.id}`}>
@@ -644,12 +669,14 @@ function documentRowState({
   email,
   emailEnabled,
   officialFiles,
+  transmissionAvailable,
 }: {
   canApprove: boolean;
   document: DocumentRowData;
   email?: EmailDelivery;
   emailEnabled: boolean;
   officialFiles: OfficialFile[];
+  transmissionAvailable: boolean;
 }) {
   const emailRedacted = Boolean(email?.requires_explicit_recipient);
   const canPrepareRedactedEmail = Boolean(emailRedacted && emailEnabled && canApprove);
@@ -665,8 +692,12 @@ function documentRowState({
       document.aruba_status,
     ),
   );
+  const canConfirmTransmission = Boolean(
+    canApprove && transmissionAvailable && document.aruba_awaiting_confirmation,
+  );
   const fileCount = Number(Boolean(document.xml_sha256)) + officialFiles.length;
   return {
+    canConfirmTransmission,
     canImportFile,
     canPrepareRedactedEmail,
     canRetryEmail,
@@ -682,6 +713,7 @@ function documentRowState({
       canRetryEmail ||
       canImportFile ||
       canRefreshAruba ||
+      canConfirmTransmission ||
       emailRedacted,
     ),
     label: document.fiscal_label ?? copy.documents.draftLabel(document.public_number),
@@ -696,6 +728,7 @@ function DocumentRow({
   email,
   emailEnabled,
   officialFiles,
+  transmissionAvailable,
 }: {
   canApprove: boolean;
   csrfToken: string;
@@ -703,8 +736,16 @@ function DocumentRow({
   email?: EmailDelivery;
   emailEnabled: boolean;
   officialFiles: OfficialFile[];
+  transmissionAvailable: boolean;
 }) {
-  const state = documentRowState({ canApprove, document, email, emailEnabled, officialFiles });
+  const state = documentRowState({
+    canApprove,
+    document,
+    email,
+    emailEnabled,
+    officialFiles,
+    transmissionAvailable,
+  });
 
   return (
     <li className="document-row">
@@ -860,6 +901,10 @@ function BatchPanel({
   );
 }
 
+function arubaTransmissionAvailable(configuredMode: string, downgradeRequired: boolean) {
+  return !downgradeRequired && configuredMode !== "DOCUMENT_ONLY";
+}
+
 export function DocumentsView({
   arubaConfiguredMode,
   arubaDowngradeRequired,
@@ -893,6 +938,10 @@ export function DocumentsView({
   unbatched: UnbatchedDocument[];
   view: string;
 }) {
+  const transmissionAvailable = arubaTransmissionAvailable(
+    arubaConfiguredMode,
+    arubaDowngradeRequired,
+  );
   const officialFilesByDocument = new Map<string, OfficialFile[]>();
   const emailByDocument = new Map<string, EmailDelivery>();
   for (const delivery of emailDeliveries) {
@@ -991,6 +1040,7 @@ export function DocumentsView({
                   emailEnabled={emailEnabled}
                   key={document.id}
                   officialFiles={officialFilesByDocument.get(document.id) ?? []}
+                  transmissionAvailable={transmissionAvailable}
                 />
               ))}
             </ul>
