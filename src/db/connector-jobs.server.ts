@@ -130,7 +130,7 @@ export async function scheduleDueSyncs() {
        greatest(now(), connections.credentials_verified_at + interval '61 seconds') AS run_at
        FROM connections
        WHERE provider = 'ARUBA' AND environment = $1
-         AND status = 'CONNECTED' AND encrypted_credentials IS NOT NULL
+         AND status IN ('CONNECTED', 'ERROR') AND encrypted_credentials IS NOT NULL
          AND credentials_verified_at IS NOT NULL
          AND inbound_enabled AND NOT api_paused
          AND NOT EXISTS (
@@ -176,7 +176,7 @@ export async function scheduleDueSyncs() {
            'UNKNOWN', 'UNKNOWN_REMOTE_STATE')
          AND submissions.next_readback_at <= now()
          AND NOT ${arubaSubmissionTransmissionAbsenceSql("submissions")}
-         AND connections.status = 'CONNECTED' AND NOT connections.api_paused
+         AND connections.status IN ('CONNECTED', 'ERROR') AND NOT connections.api_paused
          AND connections.encrypted_credentials IS NOT NULL
        ON CONFLICT DO NOTHING`,
     );
@@ -416,7 +416,12 @@ export async function actionableConnectorFailures() {
     last_error_code: string | null;
     failed_at: Date;
   }>(
-    `SELECT jobs.id, jobs.type, jobs.attempts, jobs.last_error_code,
+    `SELECT * FROM (
+     -- Un fallimento ripetuto della stessa sincronizzazione resta un solo controllo; webhook e
+     -- anteprime restano distinti perché ogni job riguarda un oggetto diverso.
+     SELECT DISTINCT ON (CASE WHEN jobs.type IN ('shopify_process_webhook', 'ebay_preview_history')
+                          THEN jobs.id::text ELSE jobs.type END)
+            jobs.id, jobs.type, jobs.attempts, jobs.last_error_code,
             coalesce(jobs.locked_at, jobs.run_at, jobs.created_at) AS failed_at
      FROM jobs
      JOIN connections
@@ -435,7 +440,10 @@ export async function actionableConnectorFailures() {
        AND jobs.type = ANY($1::text[])
        AND (connections.last_synced_at IS NULL
          OR coalesce(jobs.locked_at, jobs.run_at, jobs.created_at) > connections.last_synced_at)
-     ORDER BY failed_at DESC, jobs.id DESC`,
+     ORDER BY CASE WHEN jobs.type IN ('shopify_process_webhook', 'ebay_preview_history')
+                THEN jobs.id::text ELSE jobs.type END, failed_at DESC, jobs.id DESC
+     ) AS latest_failures
+     ORDER BY failed_at DESC, id DESC`,
     [
       manuallyRetryableJobTypes,
       activeConnectorEnvironment("SHOPIFY"),

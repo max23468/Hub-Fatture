@@ -1161,6 +1161,21 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
     );
     await getPool().query(`DELETE FROM jobs WHERE status = 'PENDING'`);
     await getPool().query(
+      `UPDATE connections SET status = 'ERROR', last_error_code = 'UNKNOWN'
+       WHERE provider = 'ARUBA'`,
+    );
+    await jobs.scheduleDueSyncs();
+    assert.deepEqual(
+      (await getPool().query(`SELECT type FROM jobs WHERE status = 'PENDING' ORDER BY id`)).rows,
+      [{ type: "aruba_sync_inventory" }],
+    );
+    assert.equal((await api.requestArubaApiSync(owner)).queued, false);
+    await getPool().query(
+      `UPDATE connections SET status = 'CONNECTED', last_error_code = NULL
+       WHERE provider = 'ARUBA'`,
+    );
+    await getPool().query(`DELETE FROM jobs WHERE status = 'PENDING'`);
+    await getPool().query(
       `INSERT INTO jobs (type, status, run_at, last_error_code)
        VALUES
          ('aruba_sync_inventory', 'FAILED', now() - interval '1 day', 'PROVIDER_UNAVAILABLE'),
@@ -1386,7 +1401,14 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
          WHERE status = 'FAILED' AND last_error_code = 'UNKNOWN'`,
       );
       assert.deepEqual(
-        unexpectedLogs.map((message) => JSON.parse(message)),
+        unexpectedLogs.map((message) => {
+          const { frames, ...entry } = JSON.parse(message) as Record<string, unknown>;
+          assert.ok(Array.isArray(frames) && frames.length > 0);
+          assert.ok(
+            frames.every((frame) => typeof frame === "string" && /^at .+:\d+:\d+\)?$/.test(frame)),
+          );
+          return entry;
+        }),
         [
           {
             event: "aruba_inbound_unexpected_error",
