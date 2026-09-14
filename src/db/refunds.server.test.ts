@@ -772,6 +772,24 @@ test(
         ).rows[0],
         { total_amount: 2600, audit_count: "1" },
       );
+      importedOrder.updatedAt = "2026-08-12T10:00:00Z";
+      await orders.importOrders([importedOrder], {
+        id: Number(user.rows[0]!.id),
+        requestId: "replay-linked-credit-note",
+      });
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT documents.total_amount,
+                    (SELECT count(*) FROM audit_events
+                     WHERE action = 'REFUND_CREDIT_NOTE_UPDATED'
+                       AND request_id = 'replay-linked-credit-note') AS audit_count
+             FROM documents WHERE id = $1`,
+            [noteId],
+          )
+        ).rows[0],
+        { total_amount: 2600, audit_count: "0" },
+      );
       importedOrder.updatedAt = "2026-08-13T09:00:00Z";
       importedOrder.refunds[0].amount = "25.00";
       await orders.importOrders([importedOrder], {

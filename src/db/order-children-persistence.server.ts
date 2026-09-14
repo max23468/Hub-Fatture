@@ -143,7 +143,8 @@ export async function replaceOrderChildren(
       old &&
       (old.status !== refund.status ||
         old.amount !== nextAmount ||
-        old.completed_at?.toISOString() !== canonicalOrderTimestamp(refund.completedAt)),
+        canonicalOrderTimestamp(old.completed_at?.toISOString() ?? null) !==
+          canonicalOrderTimestamp(refund.completedAt)),
     );
     if (changed && old?.credit_document_id) {
       const linked = await client.query<{ status: string }>(

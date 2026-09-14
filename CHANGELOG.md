@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.5
+
+- Una sincronizzazione Shopify o eBay che ripresenta un rimborso invariato non riscrive più la bozza della nota di credito collegata e non aggiunge un aggiornamento al registro: la data di completamento veniva confrontata in due formati diversi e risultava sempre modificata.
+
 ## 1.4.4
 
 - Una preparazione aperta, pronta o da verificare, può essere chiusa con `Chiudi come corrispettivo` quando la vendita è già stata certificata come corrispettivo: non riceve un numero, il motivo è facoltativo e l’archivio, il dettaglio e il registro attività la mostrano come chiusa come corrispettivo. Resta riattivabile come `Non trasmettere`.
