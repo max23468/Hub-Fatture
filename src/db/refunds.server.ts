@@ -19,6 +19,7 @@ import { recipientComparison } from "../recipient-comparison.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import { effectiveApprovedInvoiceSql } from "./billing-case-sql.server.ts";
+import { nextFiscalNumber } from "./fiscal-numbering.server.ts";
 import { consumeArubaPreflight, ensureArubaPreflight } from "./aruba-preflight.server.ts";
 import { createArubaApiBatch } from "./aruba-api-outbound.server.ts";
 import { getArubaSettings } from "./aruba.server.ts";
@@ -581,21 +582,7 @@ export async function approveCreditNote(
       throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
     }
     const year = Number(input.documentDate.slice(0, 4));
-    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      `fiscal-number:${row.series}:${year}`,
-    ]);
-    const sequence = await client.query<{ next: number }>(
-      `SELECT greatest(coalesce(max(fiscal_number), 0), $3::integer) + 1 AS next
-       FROM documents WHERE status = 'APPROVED' AND series = $1 AND fiscal_year = $2`,
-      [
-        row.series,
-        year,
-        row.profile_json.numbering.lastObservedYear === year
-          ? row.profile_json.numbering.lastObservedNumber
-          : 0,
-      ],
-    );
-    const number = Number(sequence.rows[0]!.next);
+    const number = await nextFiscalNumber(client, row.series, year, row.profile_json.numbering);
     const xml = generateFatturaXml(row.profile_json, input, { year, number });
     await validateFatturaXml(xml);
     const sha256 = createHash("sha256").update(xml).digest("hex");

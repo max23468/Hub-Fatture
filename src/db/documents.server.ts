@@ -29,6 +29,7 @@ import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { getConfig } from "../config.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { parseDatabaseRevision } from "./database-revision.ts";
+import { nextFiscalNumber } from "./fiscal-numbering.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import {
   arubaInventoryApprovalState,
@@ -945,32 +946,12 @@ export async function approveInvoice(
       }
       const year = Number(input.documentDate.slice(0, 4));
       const series = profile.profile_json.series;
-      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-        `fiscal-number:${series}:${year}`,
-      ]);
-      const config = getConfig();
-      const sequence = await client.query<{ next: number }>(
-        `SELECT greatest(
-           coalesce((SELECT max(fiscal_number) FROM documents
-             WHERE status = 'APPROVED' AND series = $1 AND fiscal_year = $2), 0),
-           coalesce((SELECT max((btrim(fiscal_number))::integer)
-             FROM aruba_remote_documents
-             WHERE environment = $3 AND account_reference = $4
-               AND fiscal_year = $2 AND upper(series) = upper($1)
-               AND document_type = 'TD01' AND btrim(fiscal_number) ~ '^[0-9]+$'), 0),
-           $5::integer
-         ) + 1 AS next`,
-        [
-          series,
-          year,
-          config.APP_ENV === "production" ? "PRODUCTION" : "MOCK",
-          config.ARUBA_ACCOUNT_REFERENCE,
-          profile.profile_json.numbering.lastObservedYear === year
-            ? profile.profile_json.numbering.lastObservedNumber
-            : 0,
-        ],
+      const fiscalNumber = await nextFiscalNumber(
+        client,
+        series,
+        year,
+        profile.profile_json.numbering,
       );
-      const fiscalNumber = Number(sequence.rows[0]!.next);
       const xml = generateFatturaXml(profile.profile_json, input, {
         year,
         number: fiscalNumber,
