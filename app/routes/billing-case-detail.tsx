@@ -821,6 +821,28 @@ function TransmissionCard({
   );
 }
 
+function preparationWorkflowLayout({
+  approved,
+  canShowApproval,
+  hasTransmission,
+  showInventory,
+}: {
+  approved: boolean;
+  canShowApproval: boolean;
+  hasTransmission: boolean;
+  showInventory: boolean;
+}) {
+  if (approved) {
+    return hasTransmission
+      ? "preparation-workflow-grid--with-transmission"
+      : "preparation-workflow-grid--activity-only";
+  }
+  if (!showInventory) return "preparation-workflow-grid--without-inventory";
+  return canShowApproval
+    ? "preparation-workflow-grid--with-inventory preparation-workflow-grid--expanded-approval"
+    : "preparation-workflow-grid--with-inventory preparation-workflow-grid--compact-approval";
+}
+
 function InvoiceDocument({
   canApprove,
   caseReady,
@@ -852,15 +874,12 @@ function InvoiceDocument({
   const showInventory = !projection.approved && inventoryNeedsAttention;
   const showApproval = !projection.approved;
   const transmission = projection.approved ? projection.arubaTransmission : null;
-  const workflowLayout = projection.approved
-    ? transmission
-      ? "preparation-workflow-grid--with-transmission"
-      : "preparation-workflow-grid--activity-only"
-    : showInventory
-      ? canShowApproval
-        ? "preparation-workflow-grid--with-inventory preparation-workflow-grid--expanded-approval"
-        : "preparation-workflow-grid--with-inventory preparation-workflow-grid--compact-approval"
-      : "preparation-workflow-grid--without-inventory";
+  const workflowLayout = preparationWorkflowLayout({
+    approved: projection.approved,
+    canShowApproval,
+    hasTransmission: Boolean(transmission),
+    showInventory,
+  });
   return (
     <>
       {!projection.approved ? (

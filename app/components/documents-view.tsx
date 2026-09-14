@@ -901,6 +901,10 @@ function BatchPanel({
   );
 }
 
+function arubaTransmissionAvailable(configuredMode: string, downgradeRequired: boolean) {
+  return !downgradeRequired && configuredMode !== "DOCUMENT_ONLY";
+}
+
 export function DocumentsView({
   arubaConfiguredMode,
   arubaDowngradeRequired,
@@ -934,7 +938,10 @@ export function DocumentsView({
   unbatched: UnbatchedDocument[];
   view: string;
 }) {
-  const transmissionAvailable = !arubaDowngradeRequired && arubaConfiguredMode !== "DOCUMENT_ONLY";
+  const transmissionAvailable = arubaTransmissionAvailable(
+    arubaConfiguredMode,
+    arubaDowngradeRequired,
+  );
   const officialFilesByDocument = new Map<string, OfficialFile[]>();
   const emailByDocument = new Map<string, EmailDelivery>();
   for (const delivery of emailDeliveries) {
