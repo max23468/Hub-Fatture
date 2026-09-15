@@ -4,8 +4,10 @@ import { classifyFiles } from "./change-impact.mjs";
 import {
   classifyPreflightFiles,
   diffCheckCommands,
+  findDisallowedActions,
   preflightPlan,
   validateReleaseMetadata,
+  workflowActionReferences,
 } from "./publish-preflight.mjs";
 
 const scripts = (phase) => phase.map((entry) => entry.join(" "));
@@ -14,6 +16,37 @@ test("il controllo whitespace e marcatori copre anche i commit rispetto alla bas
   assert.deepEqual(scripts(diffCheckCommands("origin/main")), [
     "git diff --check",
     "git diff --check origin/main HEAD",
+  ]);
+});
+
+test("un'Action esclusa dalle Action consentite blocca il preflight prima della PR", () => {
+  const workflow = `
+jobs:
+  verify:
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/local
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      - id: doctor
+        uses: "millionco/react-doctor@013f7373f91a3b9e68bd1dc7d4d354f4b041b117" # v2.2.9
+      - uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
+      - uses: jdx/mise-action@v4
+`;
+  const references = workflowActionReferences(workflow);
+  assert.equal(references.includes("./.github/actions/local"), false);
+
+  const permissions = { allowed_actions: "selected", sha_pinning_required: true };
+  const selected = {
+    github_owned_allowed: true,
+    patterns_allowed: [
+      "millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2",
+      "docker/login-action@*",
+      "jdx/mise-action@*",
+    ],
+  };
+  assert.deepEqual(findDisallowedActions(references, permissions, selected), [
+    "millionco/react-doctor@013f7373f91a3b9e68bd1dc7d4d354f4b041b117: non ammessa dalle Action consentite della repository",
+    "jdx/mise-action@v4: non fissata a uno SHA completo",
   ]);
 });
 

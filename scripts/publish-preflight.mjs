@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { classifyFiles } from "./change-impact.mjs";
 import { changelogSection } from "./prepare-production-release.mjs";
@@ -112,6 +112,65 @@ export function diffCheckCommands(base) {
   ];
 }
 
+/** Riferimenti `uses:` soggetti alle Action consentite: esclusi quelli locali e `docker://`. */
+export function workflowActionReferences(workflow) {
+  return [...workflow.matchAll(/^\s*(?:-\s+)?uses:\s*["']?([^\s"'#]+)/gm)]
+    .map(([, reference]) => reference)
+    .filter((reference) => !reference.startsWith("./") && !reference.startsWith("docker://"));
+}
+
+const allowedPattern = (pattern) =>
+  new RegExp(`^${pattern.split("*").map(RegExp.escape).join(".*")}$`, "i");
+
+export function findDisallowedActions(references, permissions, selected) {
+  const problems = [];
+  for (const reference of new Set(references)) {
+    const [path, ref = ""] = reference.split("@");
+    if (permissions.sha_pinning_required && !/^[0-9a-f]{40}$/.test(ref)) {
+      problems.push(`${reference}: non fissata a uno SHA completo`);
+    }
+    if (permissions.allowed_actions === "all") continue;
+    const allowed =
+      permissions.allowed_actions === "selected" &&
+      ((selected.github_owned_allowed && /^(?:actions|github)\//i.test(path)) ||
+        selected.patterns_allowed.some((pattern) => allowedPattern(pattern).test(reference)));
+    if (!allowed)
+      problems.push(`${reference}: non ammessa dalle Action consentite della repository`);
+  }
+  return problems;
+}
+
+function ghApi(endpoint) {
+  const result = spawnSync("gh", ["api", endpoint], { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(result.stderr?.trim() || `gh api ${endpoint} fallito`);
+  return JSON.parse(result.stdout);
+}
+
+// Un'Action esclusa fa terminare il workflow in startup_failure: nessun job, nessun log e
+// required check mai arrivato. Il GITHUB_TOKEN non legge queste impostazioni, quindi il
+// confronto vive qui con le credenziali del titolare.
+function verifyAllowedActions() {
+  const directory = ".github/workflows";
+  const references = readdirSync(directory)
+    .filter((name) => /\.ya?ml$/.test(name))
+    .flatMap((name) => workflowActionReferences(readFileSync(`${directory}/${name}`, "utf8")));
+  const permissions = ghApi("repos/{owner}/{repo}/actions/permissions");
+  const selected =
+    permissions.allowed_actions === "selected"
+      ? ghApi("repos/{owner}/{repo}/actions/permissions/selected-actions")
+      : { github_owned_allowed: false, patterns_allowed: [] };
+  const problems = findDisallowedActions(references, permissions, selected);
+  if (problems.length > 0) {
+    throw new Error(
+      [
+        "Action non eseguibili con le impostazioni GitHub correnti (startup_failure):",
+        ...problems.map((problem) => `- ${problem}`),
+        "Usa un riferimento ammesso oppure chiedi al proprietario di aggiornare le Action consentite.",
+      ].join("\n"),
+    );
+  }
+}
+
 async function main(argv = process.argv.slice(2)) {
   const base = argv[0] ?? "origin/main";
   for (const [executable, ...args] of diffCheckCommands(base)) {
@@ -120,6 +179,7 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   const files = changedFiles(base);
+  if (files.some((file) => file.startsWith(".github/workflows/"))) verifyAllowedActions();
   const impact = classifyPreflightFiles(files);
   if (impact.runtime) {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8"));

@@ -2710,6 +2710,7 @@ Baseline GitHub pubblica:
 - package GHCR pubblico collegato alla repository, attestazioni abilitate e nessuna cancellazione automatica dei digest usati in Production o come rollback;
 - release immutabili abilitate, `.github/release.yml` minimale e pubblicazione consentita soltanto nel flusso release autorizzato;
 - auto-merge Dependabot limitato agli aggiornamenti npm e GitHub Actions minor/patch, senza checkout o esecuzione della PR nel workflow privilegiato;
+- Action consentite limitate a quelle GitHub e ai repository di terze parti approvati, ammessi per repository (`owner/repo@*`) e mai per singolo SHA perché Dependabot possa aggiornarli, con pin SHA obbligatorio nei workflow; un riferimento escluso fa terminare il workflow in `startup_failure` senza job né required check, quindi `npm run publish:preflight`, quando cambiano i workflow, confronta gli `uses:` esterni con le impostazioni lette via API e fallisce prima della PR; il `GITHUB_TOKEN` non legge queste impostazioni e le Action annidate nelle composite restano fuori dal confronto;
 - workflow da fork senza secret, permessi read-only e nessun checkout di codice esterno sotto `pull_request_target`;
 - titoli PR e commit di merge in formato Conventional Commit, verificati dal gate `Foundation`;
 - nessun `LICENSE` finché il titolare non sceglie esplicitamente di concedere diritti.
