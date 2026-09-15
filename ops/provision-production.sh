@@ -21,7 +21,7 @@ fi
 
 if ! command -v oci >/dev/null 2>&1; then
   python3 -m venv /opt/oci-cli
-  /opt/oci-cli/bin/pip install --disable-pip-version-check oci-cli==3.90.1
+  /opt/oci-cli/bin/pip install --disable-pip-version-check oci-cli==3.93.0
   ln -s /opt/oci-cli/bin/oci /usr/local/bin/oci
 fi
 

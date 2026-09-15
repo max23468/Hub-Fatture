@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.6
+
+- Node.js passa alla 26.8.2 e le dipendenze npm, comprese quelle transitive, sono aggiornate alle ultime versioni stabili. `nodemailer` passa alla major 10, che pubblica i propri tipi e rende superfluo `@types/nodemailer`. L’immagine applicativa usa la nuova base Node Trixie Slim, uno snapshot Debian aggiornato e nessuna vulnerabilità alta o critica correggibile rilevata dalla scansione.
+- PostgreSQL resta alla 18.6 con il digest aggiornato dell’immagine in sviluppo, CI e Production. Le Action di CodeQL e di build Docker e il client OCI usato dal provisioning seguono le ultime release.
+
 ## 1.4.5
 
 - Una sincronizzazione Shopify o eBay che ripresenta un rimborso invariato non riscrive più la bozza della nota di credito collegata e non aggiunge un aggiornamento al registro: la data di completamento veniva confrontata in due formati diversi e risultava sempre modificata.

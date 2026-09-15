@@ -47,11 +47,11 @@ jobs:
           else
             node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
           fi
-      - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+      - uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         if: steps.reuse.outputs.reused != 'true' && steps.impact.outputs.standard == 'true'
         with:
           languages: javascript-typescript
-      - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+      - uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         if: steps.reuse.outputs.reused != 'true' && steps.impact.outputs.standard == 'true'
       - if: steps.reuse.outputs.reused != 'true' && steps.impact.outputs.standard != 'true'
         run: echo "CodeQL non applicabile a questa corsia."
