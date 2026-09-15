@@ -4,7 +4,7 @@ status: accepted
 
 # Debian 13 Trixie Slim come base applicativa
 
-Tutti gli stage dell’immagine applicativa usano l’immagine ufficiale `node:26.7.0-trixie-slim`, fissata per digest multi-arch e qualificata per `linux/arm64`. Node resta 26.7.0 e npm resta 12.0.2 negli stage che installano o costruiscono dipendenze. Il runtime non contiene npm, npx, TypeScript, Vite o altri strumenti di build.
+Tutti gli stage dell’immagine applicativa usano l’immagine ufficiale Node Slim su Debian 13 Trixie, fissata per digest multi-arch e qualificata per `linux/arm64`. Negli stage che installano o costruiscono dipendenze Node e npm coincidono con i pin di `mise.toml` e `package.json`, verificati dalla policy toolchain. Il runtime non contiene npm, npx, TypeScript, Vite o altri strumenti di build.
 
 I repository Debian e Debian Security puntano allo stesso snapshot immutabile. `libxml2-utils` è installato con pin esatto alla versione presente nello snapshot, tramite `apt-get install --no-install-recommends`; gli eventuali pacchetti di sistema con correzioni High/Critical richieste dalla scansione sono aggiornati con pin mirati nello stesso comando. Gli indici APT vengono eliminati nello stesso layer e la build non esegue un aggiornamento generale della distribuzione. `Acquire::Check-Valid-Until=false` è necessario perché gli indici storici di snapshot.debian.org devono restare utilizzabili dopo la scadenza ordinaria dei metadati; firme e keyring Debian non vengono disabilitati.
 

@@ -599,9 +599,10 @@ test("l’immagine applicativa usa Trixie Slim immutabile e resta qualificabile 
     ].map((file) => readFile(path.join(root, file), "utf8")),
   );
 
+  // La patch Node coincide con `mise.toml` per la policy toolchain: qui conta solo la forma.
   assert.match(
     dockerfile,
-    /^FROM node:26\.7\.0-trixie-slim@sha256:[0-9a-f]{64} AS debian-snapshot$/m,
+    /^FROM node:\d+\.\d+\.\d+-trixie-slim@sha256:[0-9a-f]{64} AS debian-snapshot$/m,
   );
   assert.doesNotMatch(dockerfile, /^FROM node:[^\n]*bookworm/m);
   assert.match(dockerfile, /^ARG DEBIAN_SNAPSHOT=\d{8}T\d{6}Z$/m);

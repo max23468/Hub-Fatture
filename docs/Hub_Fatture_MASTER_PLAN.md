@@ -1688,7 +1688,7 @@ Dipendenze di sviluppo dirette iniziali:
 | `oxlint`, `oxfmt` | uniche toolchain lint/formato |
 | `react-doctor` | scansione React completa nel comando locale/CI canonico e configurazione condivisa con l'Action bloccante dai warning |
 | `@types/node`, `@types/react`, `@types/react-dom` | tipi piattaforma allineati al runtime |
-| `@types/pg` | tipi driver PostgreSQL; `@types/nodemailer` entra con `nodemailer` |
+| `@types/pg` | tipi driver PostgreSQL; `nodemailer` pubblica i propri tipi e non richiede `@types/nodemailer` |
 
 `pdfkit` e i relativi tipi sono l'unica dipendenza condizionale già selezionata: non installarli finché HF-O03 non dimostra che Aruba non restituisce un PDF ufficiale utilizzabile. Se servono, usare font incorporati e non aggiungere Chromium al runtime per renderizzare PDF.
 
