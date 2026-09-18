@@ -7,6 +7,7 @@ import {
   documentInputSchema,
   fatturaPaText,
   fiscalProfileSchema,
+  FATTURA_GENERATOR_VERSION,
   generateFatturaXml,
   projectFatturaXml,
   type DocumentInput,
@@ -597,7 +598,7 @@ export async function approveCreditNote(
       [relativePath, sha256, Buffer.byteLength(xml)],
     );
     const snapshot = {
-      generatorVersion: 3,
+      generatorVersion: FATTURA_GENERATOR_VERSION,
       ...input,
       sourceTotal: row.total_amount,
       total: row.total_amount,

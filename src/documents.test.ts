@@ -8,6 +8,7 @@ import {
   acceptedCreditNoteFromXml,
   acceptedDocumentFiscalIdentity,
   documentInputSchema,
+  fatturaGeneratorOptions,
   acceptedInvoiceFromXml,
   acceptedFiscalDocumentEvidenceFromXml,
   fiscalDocumentEnvelopesFromXml,
@@ -122,6 +123,45 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
     syntheticFiscalProfile,
   );
   await validateFatturaXml(invoiceXml);
+  // Serializzazione e campi facoltativi che il pannello Aruba emette su ogni documento.
+  assert.equal(invoiceXml.codePointAt(0), 0xfeff);
+  assert.match(invoiceXml, /^.<\?xml version="1\.0" encoding="utf-8"\?>/);
+  assert.equal(invoiceXml.match(/xmlns=""/g)?.length, 2);
+  assert.match(
+    invoiceXml,
+    /<AlboProfessionale>ALBO ESEMPIO<\/AlboProfessionale>\s*<ProvinciaAlbo>MI<\/ProvinciaAlbo>\s*<NumeroIscrizioneAlbo>123<\/NumeroIscrizioneAlbo>\s*<DataIscrizioneAlbo>2011-06-21<\/DataIscrizioneAlbo>/,
+  );
+  assert.match(invoiceXml, /<Indirizzo>Via Esempio<\/Indirizzo>\s*<NumeroCivico>1<\/NumeroCivico>/);
+  assert.match(invoiceXml, /<Quantita>1\.00<\/Quantita>\s*<UnitaMisura>NR<\/UnitaMisura>/);
+  assert.match(invoiceXml, /<ProgressivoInvio>1<\/ProgressivoInvio>/);
+  assert.match(invoiceXml, /<DataScadenzaPagamento>2026-09-09<\/DataScadenzaPagamento>/);
+  // Un profilo attivato prima di questi campi resta emettibile e non produce nodi vuoti.
+  const { professionalRegister: _register, ...sellerWithoutRegister } =
+    syntheticFiscalProfile.seller;
+  const { streetNumber: _streetNumber, ...addressWithoutStreetNumber } =
+    syntheticFiscalProfile.seller.address;
+  const withoutOptionalSellerData = generateFatturaXml(
+    {
+      ...syntheticFiscalProfile,
+      seller: { ...sellerWithoutRegister, address: addressWithoutStreetNumber },
+    },
+    invoice,
+    { year: 2026, number: 1 },
+  );
+  await validateFatturaXml(withoutOptionalSellerData);
+  assert.doesNotMatch(withoutOptionalSellerData, /AlboProfessionale|<NumeroCivico>1</);
+  // I documenti approvati con la generazione precedente devono rigenerarsi byte per byte.
+  const previousGeneration = generateFatturaXml(
+    syntheticFiscalProfile,
+    invoice,
+    { year: 2026, number: 1 },
+    fatturaGeneratorOptions(3),
+  );
+  assert.ok(previousGeneration.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
+  assert.equal(previousGeneration.match(/xmlns=""/g)?.length, 8);
+  assert.match(previousGeneration, /<ProgressivoInvio>2600000001<\/ProgressivoInvio>/);
+  assert.match(previousGeneration, /<DataScadenzaPagamento>2026-08-10<\/DataScadenzaPagamento>/);
+  assert.doesNotMatch(previousGeneration, /UnitaMisura/);
   assert.match(invoiceXml, /<RegimeFiscale>RF14<\/RegimeFiscale>/);
   assert.match(invoiceXml, /<Natura>N5<\/Natura>/);
   assert.match(invoiceXml, /<ModalitaPagamento>MP08<\/ModalitaPagamento>/);
@@ -198,10 +238,7 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
       .legalReference,
     syntheticFiscalProfile.legalReference,
   );
-  const withoutPayment = invoiceXml.replace(
-    /\s*<DatiPagamento xmlns="">[\s\S]*?<\/DatiPagamento>/,
-    "",
-  );
+  const withoutPayment = invoiceXml.replace(/\s*<DatiPagamento>[\s\S]*?<\/DatiPagamento>/, "");
   await validateFatturaXml(withoutPayment);
   const acceptedWithoutPayment = acceptedInvoiceFromXml(
     withoutPayment,
@@ -306,7 +343,7 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
   assert.equal(profileFromLatestDocument.numbering.lastObservedNumber, 2);
   assert.equal(
     profileFromLatestDocument.numbering.sourceXmlSha256,
-    "3aba706b016d75a2d06c6340e45243e06c5cba805de990db90460b7bb81db1d4",
+    "eec7e466dc9103ed01457cdd454165ea76c83b8fe836ef35171493e533a74d08",
   );
   assert.throws(
     () =>
@@ -321,10 +358,7 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
   assert.match(creditXml, /<TipoDocumento>TD04<\/TipoDocumento>/);
   assert.match(creditXml, /<ModalitaPagamento>MP05<\/ModalitaPagamento>/);
   assert.match(creditXml, /<PECDestinatario>cliente@example\.invalid<\/PECDestinatario>/);
-  const creditWithoutPayment = creditXml.replace(
-    /\s*<DatiPagamento xmlns="">[\s\S]*?<\/DatiPagamento>/,
-    "",
-  );
+  const creditWithoutPayment = creditXml.replace(/\s*<DatiPagamento>[\s\S]*?<\/DatiPagamento>/, "");
   const creditWithoutTotalOrPayment = creditWithoutPayment.replace(
     /\s*<ImportoTotaleDocumento>23\.45<\/ImportoTotaleDocumento>/,
     "",

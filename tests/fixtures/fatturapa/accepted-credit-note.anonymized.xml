@@ -1,17 +1,17 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <FatturaElettronica xmlns="http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2" versione="FPR12">
   <FatturaElettronicaHeader xmlns="">
-    <DatiTrasmissione xmlns="">
+    <DatiTrasmissione>
       <IdTrasmittente>
         <IdPaese>IT</IdPaese>
         <IdCodice>01234567890</IdCodice>
       </IdTrasmittente>
-      <ProgressivoInvio>2600000002</ProgressivoInvio>
+      <ProgressivoInvio>2</ProgressivoInvio>
       <FormatoTrasmissione>FPR12</FormatoTrasmissione>
       <CodiceDestinatario>0000000</CodiceDestinatario>
       <PECDestinatario>cliente@example.invalid</PECDestinatario>
     </DatiTrasmissione>
-    <CedentePrestatore xmlns="">
+    <CedentePrestatore>
       <DatiAnagrafici>
         <IdFiscaleIVA>
           <IdPaese>IT</IdPaese>
@@ -21,10 +21,15 @@
         <Anagrafica>
           <Denominazione>Venditore Esempio</Denominazione>
         </Anagrafica>
+        <AlboProfessionale>ALBO ESEMPIO</AlboProfessionale>
+        <ProvinciaAlbo>MI</ProvinciaAlbo>
+        <NumeroIscrizioneAlbo>123</NumeroIscrizioneAlbo>
+        <DataIscrizioneAlbo>2011-06-21</DataIscrizioneAlbo>
         <RegimeFiscale>RF14</RegimeFiscale>
       </DatiAnagrafici>
       <Sede>
-        <Indirizzo>Via Esempio 1</Indirizzo>
+        <Indirizzo>Via Esempio</Indirizzo>
+        <NumeroCivico>1</NumeroCivico>
         <CAP>20100</CAP>
         <Comune>Milano</Comune>
         <Provincia>MI</Provincia>
@@ -35,7 +40,7 @@
         <Email>contabilita@example.invalid</Email>
       </Contatti>
     </CedentePrestatore>
-    <CessionarioCommittente xmlns="">
+    <CessionarioCommittente>
       <DatiAnagrafici>
         <IdFiscaleIVA>
           <IdPaese>IT</IdPaese>
@@ -57,7 +62,7 @@
     </CessionarioCommittente>
   </FatturaElettronicaHeader>
   <FatturaElettronicaBody xmlns="">
-    <DatiGenerali xmlns="">
+    <DatiGenerali>
       <DatiGeneraliDocumento>
         <TipoDocumento>TD04</TipoDocumento>
         <Divisa>EUR</Divisa>
@@ -66,11 +71,12 @@
         <ImportoTotaleDocumento>23.45</ImportoTotaleDocumento>
       </DatiGeneraliDocumento>
     </DatiGenerali>
-    <DatiBeniServizi xmlns="">
+    <DatiBeniServizi>
       <DettaglioLinee>
         <NumeroLinea>1</NumeroLinea>
         <Descrizione>Rimborso beni usati - Ordine Shopify #1001</Descrizione>
         <Quantita>1.00</Quantita>
+        <UnitaMisura>NR</UnitaMisura>
         <PrezzoUnitario>23.45</PrezzoUnitario>
         <PrezzoTotale>23.45</PrezzoTotale>
         <AliquotaIVA>0.00</AliquotaIVA>
@@ -84,11 +90,11 @@
         <RiferimentoNormativo>Regime del margine Art. 36 41/95</RiferimentoNormativo>
       </DatiRiepilogo>
     </DatiBeniServizi>
-    <DatiPagamento xmlns="">
+    <DatiPagamento>
       <CondizioniPagamento>TP02</CondizioniPagamento>
       <DettaglioPagamento>
         <ModalitaPagamento>MP05</ModalitaPagamento>
-        <DataScadenzaPagamento>2026-08-11</DataScadenzaPagamento>
+        <DataScadenzaPagamento>2026-09-10</DataScadenzaPagamento>
         <ImportoPagamento>23.45</ImportoPagamento>
       </DettaglioPagamento>
     </DatiPagamento>
