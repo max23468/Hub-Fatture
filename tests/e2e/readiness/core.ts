@@ -1589,6 +1589,9 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   const approvalClient = new pg.Client({ connectionString: databaseUrl });
   await approvalClient.connect();
   try {
+    // Un giro in corso fa attendere soltanto quando l’ultimo inventario completo non è fresco.
+    await approvalClient.query(`UPDATE aruba_sync_runs
+      SET completed_at = now() - interval '10 minutes' WHERE status = 'COMPLETED'`);
     const running = await approvalClient.query<{ id: string }>(`INSERT INTO aruba_sync_runs
       (id, environment, api_environment, account_reference, kind, authority_mode, status,
        window_start, window_end, checkpoint_start, checkpoint_end, lease_expires_at)

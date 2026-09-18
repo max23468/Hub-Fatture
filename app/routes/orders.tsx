@@ -24,7 +24,10 @@ import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.ser
 import { getConfig } from "../../src/config.server.ts";
 import { arubaInventoryApprovalState } from "../../src/aruba-inventory.ts";
 import { errorCodeLabel } from "../../src/error-label.ts";
-import { getArubaInventoryHealth } from "../../src/db/aruba-inventory-health.server.ts";
+import {
+  getArubaInventoryHealth,
+  prefetchArubaInventory,
+} from "../../src/db/aruba-inventory-health.server.ts";
 import {
   listBillingCases,
   type OpenBillingCasePool,
@@ -129,6 +132,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const arubaInventoryPromise =
     view === "fatturare" ? getArubaInventoryHealth() : Promise.resolve(null);
   const arubaInventory = await arubaInventoryPromise;
+  if (arubaInventory) {
+    await prefetchArubaInventory(
+      { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
+      arubaInventory,
+    );
+  }
   const inventoryApprovalState = arubaInventory
     ? arubaInventoryApprovalState(arubaInventory)
     : null;

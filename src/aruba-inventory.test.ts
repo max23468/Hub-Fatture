@@ -24,7 +24,16 @@ test("l'inventario Aruba oltre cinque minuti blocca ogni approvazione", () => {
 test("la verifica distingue attesa, freschezza e problemi senza allentare il gate", () => {
   assert.equal(arubaInventoryApprovalState(health(5)), "READY");
   assert.equal(arubaInventoryApprovalState(health(9)), "REFRESH_REQUIRED");
-  assert.equal(arubaInventoryApprovalState({ ...health(1), activeSession: true }), "CHECKING");
+  assert.equal(arubaInventoryApprovalState({ ...health(9), activeSession: true }), "CHECKING");
+  assert.equal(
+    arubaInventoryApprovalState({ ...health(1), activeSession: true }),
+    "READY",
+    "un giro in corso non invalida un inventario completo e fresco",
+  );
+  assert.equal(
+    arubaInventoryApprovalState({ ...health(1), activeSession: true, uncertainRemoteStates: 1 }),
+    "CHECKING",
+  );
   assert.equal(arubaInventoryApprovalState({ ...health(1), uncertainRemoteStates: 1 }), "BLOCKED");
   assert.equal(
     arubaInventoryApprovalState({ ...health(null), blockingReason: "FAILURE" }),

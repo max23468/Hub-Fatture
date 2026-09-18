@@ -61,8 +61,12 @@ export async function scheduleDueSyncs() {
              AND account_reference = connections.account_reference
              AND kind = 'BACKFILL' AND status = 'COMPLETED'
          ) THEN 'aruba_backfill_inventory'
+         -- La prima scansione completa parte subito; quella mensile solo di notte, perché
+         -- il giro lungo non occupi la coda mentre si approva.
          WHEN connections.last_full_sync_at IS NULL
-           OR connections.last_full_sync_at <= now() - interval '30 days'
+           OR (connections.last_full_sync_at <= now() - interval '30 days'
+             AND (extract(hour FROM now() AT TIME ZONE 'Europe/Rome') >= $3
+               OR extract(hour FROM now() AT TIME ZONE 'Europe/Rome') < $4))
            THEN 'aruba_full_inventory'
         WHEN ((EXISTS (
            SELECT 1 FROM aruba_remote_documents
@@ -122,8 +126,10 @@ export async function scheduleDueSyncs() {
            SELECT max(coalesce(completed_at, run_at))
            FROM jobs WHERE type = 'aruba_sync_inventory'
          ), '-infinity'::timestamptz) THEN 'aruba_refresh_nonterminal'
+         -- I giri rapidi del gate non rinviano l'incrementale periodico con sovrapposizione ampia.
          WHEN NOT EXISTS (
            SELECT 1 FROM jobs WHERE type IN ('aruba_backfill_inventory', 'aruba_sync_inventory', 'aruba_full_inventory')
+             AND payload_json ->> 'purpose' IS DISTINCT FROM 'APPROVAL'
              AND coalesce(completed_at, run_at) > now() - make_interval(secs => $2)
          ) THEN 'aruba_sync_inventory'
        END AS type,
@@ -144,6 +150,8 @@ export async function scheduleDueSyncs() {
       [
         getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT",
         ARUBA_API_POLICY.inventoryRefreshIntervalMs / 1000,
+        ARUBA_API_POLICY.fullInventoryNightStartHour,
+        ARUBA_API_POLICY.fullInventoryNightEndHour,
       ],
     );
     await client.query(

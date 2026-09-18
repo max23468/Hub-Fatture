@@ -229,6 +229,16 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
         activeSession: true,
         uncertainRemoteStates: 0,
       }),
+      false,
+      "un giro in corso non invalida un inventario completo e fresco",
+    );
+    assert.equal(
+      inventoryPolicy.arubaInventoryBlocksAllApprovals({
+        blockingReason: null,
+        ageMinutes: 6,
+        activeSession: true,
+        uncertainRemoteStates: 0,
+      }),
       true,
     );
 

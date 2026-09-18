@@ -118,6 +118,7 @@ async function openOrResumeRun(
   credentials: StoredCredentials,
   kind: RunKind,
   now: Date,
+  incrementalOverlapMs = INCREMENTAL_OVERLAP_MS,
 ) {
   const inventoryFloor = arubaApiInventoryFloor();
   return withTransaction(async (client) => {
@@ -220,7 +221,7 @@ async function openOrResumeRun(
       windowStart = new Date(
         Math.max(
           inventoryFloor.getTime(),
-          (latest.rows[0]?.window_end ?? now).getTime() - INCREMENTAL_OVERLAP_MS,
+          (latest.rows[0]?.window_end ?? now).getTime() - incrementalOverlapMs,
         ),
       );
     } else if (kind === "TARGETED") {
@@ -750,7 +751,17 @@ export async function runArubaApiInboundJob(
   if (!runJobType(job.type)) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
   const { current, credentials } = await runnableConnection();
   const kind = runKind(job.type);
-  const run = await openOrResumeRun(current, credentials, kind, options.now ?? new Date());
+  // Il giro rapido del gate rilegge solo l'ultima ora prima del giro precedente; i cambi di
+  // stato più vecchi restano all'incrementale periodico e alle riletture mirate.
+  const run = await openOrResumeRun(
+    current,
+    credentials,
+    kind,
+    options.now ?? new Date(),
+    job.payload.purpose === "APPROVAL"
+      ? ARUBA_API_POLICY.approvalOverlapMs
+      : INCREMENTAL_OVERLAP_MS,
+  );
   const rateDelayMs = options.rateDelayMs ?? ARUBA_API_POLICY.invoiceReadIntervalMs;
   const manager = new ArubaSessionManager(
     credentials.apiEnvironment,

@@ -392,7 +392,14 @@ export async function setArubaApiControls(
   });
 }
 
-export async function requestArubaApiSync(actor?: ArubaApiActor) {
+/**
+ * `APPROVAL` chiede il giro rapido usato dal gate di approvazione e invio: rilegge soltanto
+ * i caricamenti Aruba successivi all'ultimo giro, senza sostituire l'incrementale periodico.
+ */
+export async function requestArubaApiSync(
+  actor?: ArubaApiActor,
+  purpose: "PERIODIC" | "APPROVAL" = "PERIODIC",
+) {
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:ARUBA'))");
     const current = await connection(client, true);
@@ -414,10 +421,16 @@ export async function requestArubaApiSync(actor?: ArubaApiActor) {
     const type = backfill.rows[0] ? "aruba_sync_inventory" : "aruba_backfill_inventory";
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO jobs (type, payload_json, run_at)
-       VALUES ($1, jsonb_build_object('requestedBy', $2::text),
+       VALUES ($1, jsonb_build_object('requestedBy', $2::text) || CASE WHEN $4::text IS NULL
+           THEN '{}'::jsonb ELSE jsonb_build_object('purpose', $4::text) END,
          greatest(now(), $3::timestamptz + interval '61 seconds'))
        ON CONFLICT DO NOTHING RETURNING id`,
-      [type, actor ? String(actor.id) : null, current.credentials_verified_at],
+      [
+        type,
+        actor ? String(actor.id) : null,
+        current.credentials_verified_at,
+        type === "aruba_sync_inventory" && purpose === "APPROVAL" ? purpose : null,
+      ],
     );
     if (inserted.rows[0])
       await writeAudit(client, {
