@@ -41,7 +41,10 @@ import {
   getLockedArubaInventoryHealth,
   ensureFreshArubaInventory,
 } from "./aruba-inventory-health.server.ts";
-import { createArubaApiBatch, getDocumentArubaTransmission } from "./aruba-api-outbound.server.ts";
+import {
+  createArubaApiBatch,
+  listBillingCaseArubaTransmissions,
+} from "./aruba-api-outbound.server.ts";
 import { getArubaSettings } from "./aruba.server.ts";
 import { customerEmailPreview, snapshotDocumentEmail } from "./email.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
@@ -529,10 +532,10 @@ export async function getInvoiceProjection(caseId: string) {
     arubaDowngradeRequired: arubaSettings.mode.value !== arubaSettings.effectiveMode,
     arubaInventory,
     arubaApprovalBlocked: arubaInventoryBlocksAllApprovals(arubaInventory),
-    arubaTransmission:
+    arubaTransmissions:
       draft?.status === "APPROVED"
-        ? await getDocumentArubaTransmission(draft.id, arubaSettings.effectiveMode)
-        : null,
+        ? await listBillingCaseArubaTransmissions(caseId, arubaSettings.effectiveMode)
+        : [],
     customerEmail: await customerEmailPreview(caseId),
   };
 }

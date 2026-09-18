@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0
+
+- Le trasmissioni Aruba si confermano soltanto dalla preparazione fattura. La scheda `Trasmissione Aruba` elenca la fattura e le note di credito collegate, ciascuna con il proprio stato e il proprio `Trasmetti ora`: le note di credito in attesa di conferma, prima confermabili solo da Documenti, hanno ora un punto di invio nella loro preparazione, a cui porta anche l’approvazione della nota.
+- `Documenti` diventa archivio e monitoraggio: non contiene più le sezioni `Batch Aruba` e `Prepara documenti già approvati` né il pulsante `Trasmetti ora` nelle righe. Un documento in attesa di conferma offre il collegamento alla preparazione; stato, cronologia, file, `Aggiorna stato Aruba` e azioni e-mail restano disponibili. Un documento creato senza trasmissione mostra `Solo documento; nessuna trasmissione pianificata` invece di uno stato non disponibile.
+- L’approvazione di una fattura o di una nota di credito indica il percorso Aruba che seguirà; con l’invio automatico dopo approvazione il pulsante della preparazione diventa `Approva e trasmetti`.
+- Il controllo sui batch Aruba storici da riconciliare apre la preparazione del documento invece di un riferimento inesistente in Documenti.
+
 ## 1.4.8
 
 - Le fatture e le note di credito generate da Hub Fatture riproducono il file emesso dal pannello Aruba: riportano i dati dell’albo professionale del cedente e il numero civico separato dalla via, indicano l’unità di misura `NR` su ogni riga, usano il numero del documento come progressivo di invio, fissano la scadenza del pagamento a trenta giorni dalla data documento e adottano la stessa intestazione e codifica del file. Albo e civico compaiono dopo la riattivazione del profilo fiscale da un XML Aruba recente.

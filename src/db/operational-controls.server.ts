@@ -414,9 +414,17 @@ async function databaseCandidates(): Promise<ControlCandidate[]> {
       id: string;
       status: string;
       document_count: number;
+      billing_case_id: string | null;
       updated_at: string;
     }>(
-      `SELECT id::text, status, document_count, updated_at::text
+      `SELECT aruba_batches.id::text, aruba_batches.status, aruba_batches.document_count,
+              (SELECT documents.billing_case_id::text
+               FROM aruba_batch_documents
+               JOIN documents ON documents.id = aruba_batch_documents.document_id
+               WHERE aruba_batch_documents.batch_id = aruba_batches.id
+               ORDER BY aruba_batch_documents.position
+               LIMIT 1) AS billing_case_id,
+              aruba_batches.updated_at::text
        FROM aruba_batches
        WHERE status IN ('DRY_RUN_FAILED', 'SEND_FAILED', 'VALIDATION_FAILED', 'UNKNOWN_REMOTE_STATE',
                         'RECONCILIATION_REQUIRED')
@@ -516,8 +524,9 @@ async function databaseCandidates(): Promise<ControlCandidate[]> {
           : "Verifica Aruba non riuscita",
       detail: `${row.document_count} ${row.document_count === 1 ? "documento" : "documenti"}`,
       consequence: "Lo stato remoto deve essere verificato prima di ripetere qualsiasi operazione.",
-      href: `/documenti#batch-${row.id}`,
-      primaryAction: "Apri batch",
+      // La trasmissione si governa dalla preparazione: Documenti resta la vista di archivio.
+      href: row.billing_case_id ? `/ordini/preparazione/${row.billing_case_id}` : "/documenti",
+      primaryAction: row.billing_case_id ? "Apri preparazione" : "Apri documenti",
       metadata: {
         area: "DOCUMENT_GENERATION",
         facts: [

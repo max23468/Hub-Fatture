@@ -83,24 +83,9 @@
   .document-row__tools-content {
     grid-template-columns: 1fr;
   }
-
-  .document-batch-list > li {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .document-batch-list__dates {
-    grid-column: 1;
-  }
-
-  .document-batch-list__actions {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-  }
 }
 @media (max-width: 48rem) {
-  .document-archive,
-  .document-batches,
-  .document-task-panel {
+  .document-archive {
     padding: 0;
   }
 
@@ -169,8 +154,6 @@
 
   .document-row__tools > summary,
   .document-row__tools-content,
-  .document-batch-option,
-  .document-batch-list > li,
   .document-empty {
     padding-inline: var(--space-4);
   }
@@ -181,25 +164,6 @@
 
   .document-import__form .button {
     grid-column: auto;
-  }
-
-  .document-task-panel__action {
-    margin-inline: var(--space-4);
-  }
-
-  .document-batch-list > li {
-    grid-template-columns: 1fr;
-    gap: var(--space-4);
-  }
-
-  .document-batch-list__dates,
-  .document-batch-list__actions {
-    grid-column: 1;
-    grid-row: auto;
-  }
-
-  .document-batch-list__actions {
-    justify-content: flex-start;
   }
 }
 @media (max-width: 30rem) {
@@ -243,18 +207,6 @@
   .document-row__email {
     grid-column: 2;
     grid-row: 4;
-  }
-
-  .document-batch-list__dates {
-    grid-template-columns: 1fr;
-  }
-
-  .document-batch-option {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .document-batch-option > strong {
-    grid-column: 2;
   }
 
   .documents-panel {

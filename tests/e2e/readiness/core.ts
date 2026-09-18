@@ -1690,14 +1690,14 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   // Il file fiscale scaricato conserva il BOM UTF-8 che il pannello Aruba antepone.
   expect((await xmlDownload.body()).subarray(0, 8).toString("hex")).toBe("efbbbf3c3f786d6c");
 
+  // Documenti resta la vista di archivio: mostra lo stato, non l'azione di invio.
   await expect(
-    page
-      .locator(".document-batch-list")
-      .getByText("Solo documento; nessuna trasmissione pianificata", {
-        exact: true,
-      })
+    approvedDocument
+      .getByText("Solo documento; nessuna trasmissione pianificata", { exact: true })
       .first(),
   ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Trasmetti ora" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Crea batch Aruba" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Genera codice di avvio" })).toHaveCount(0);
   const outboundBatchClient = new pg.Client({
     connectionString: databaseUrl,

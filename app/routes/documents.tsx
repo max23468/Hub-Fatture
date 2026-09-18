@@ -9,14 +9,7 @@ import { copy } from "../copy.it";
 import { privateRouteMeta } from "../metadata";
 import { ARUBA_IMPORT_MAX_BYTES } from "../../src/aruba.ts";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
-import {
-  createBatchForDocuments,
-  importOfficialArubaFile,
-  listArubaBatches,
-  listOfficialArubaFiles,
-  listUnbatchedApprovedDocuments,
-  getArubaSettings,
-} from "../../src/db/aruba.server.ts";
+import { importOfficialArubaFile, listOfficialArubaFiles } from "../../src/db/aruba.server.ts";
 import { documentArchiveSummary, listDocuments } from "../../src/db/document-archive.server.ts";
 import type { DocumentListSortKey } from "../../src/db/document-archive-types.server.ts";
 import {
@@ -25,7 +18,6 @@ import {
   retryCustomerEmail,
 } from "../../src/db/email.server.ts";
 import { publicError } from "../../src/errors.ts";
-import { confirmArubaApiBatch } from "../../src/db/aruba-api-outbound.server.ts";
 import {
   requestArubaSubmissionReadback,
   requestArubaTargetedLookup,
@@ -103,35 +95,31 @@ export async function loader({ request }: Route.LoaderArgs) {
     documentSortKeys,
     { key: "data" as DocumentListSortKey, direction: "desc" },
   );
-  const [documents, summary, batches, unbatched, remoteDocuments, arubaSettings] =
-    await Promise.all([
-      listDocuments({
-        query: filters.query || undefined,
-        kind: filters.kind ? (filters.kind as "INVOICE" | "CREDIT_NOTE") : undefined,
-        status: filters.status ? (filters.status as "DRAFT" | "APPROVED") : undefined,
-        arubaStatus: filters.arubaStatus || undefined,
-        transmission,
-        dateFrom: filters.dateFrom || undefined,
-        dateTo: filters.dateTo || undefined,
-        remoteUpdatedFrom: filters.remoteUpdatedFrom || undefined,
-        remoteUpdatedTo: filters.remoteUpdatedTo || undefined,
-        recipientCountry: filters.recipientCountry || undefined,
-        recipientTaxId: filters.recipientTaxId || undefined,
-        origin: filters.origin ? (filters.origin as "HUB" | "ARUBA_HISTORY") : undefined,
-        fiscalNumber: filters.fiscalNumber || undefined,
-        providerFilename: filters.providerFilename || undefined,
-        sdiId: filters.sdiId || undefined,
-        page,
-        sort,
-      }),
-      documentArchiveSummary(),
-      listArubaBatches(),
-      listUnbatchedApprovedDocuments(),
-      view === "inventario-aruba"
-        ? listRemoteDocumentsPage({ query: filters.query || undefined, page })
-        : Promise.resolve({ rows: [], hasNext: false, total: 0 }),
-      getArubaSettings(),
-    ]);
+  const [documents, summary, remoteDocuments] = await Promise.all([
+    listDocuments({
+      query: filters.query || undefined,
+      kind: filters.kind ? (filters.kind as "INVOICE" | "CREDIT_NOTE") : undefined,
+      status: filters.status ? (filters.status as "DRAFT" | "APPROVED") : undefined,
+      arubaStatus: filters.arubaStatus || undefined,
+      transmission,
+      dateFrom: filters.dateFrom || undefined,
+      dateTo: filters.dateTo || undefined,
+      remoteUpdatedFrom: filters.remoteUpdatedFrom || undefined,
+      remoteUpdatedTo: filters.remoteUpdatedTo || undefined,
+      recipientCountry: filters.recipientCountry || undefined,
+      recipientTaxId: filters.recipientTaxId || undefined,
+      origin: filters.origin ? (filters.origin as "HUB" | "ARUBA_HISTORY") : undefined,
+      fiscalNumber: filters.fiscalNumber || undefined,
+      providerFilename: filters.providerFilename || undefined,
+      sdiId: filters.sdiId || undefined,
+      page,
+      sort,
+    }),
+    documentArchiveSummary(),
+    view === "inventario-aruba"
+      ? listRemoteDocumentsPage({ query: filters.query || undefined, page })
+      : Promise.resolve({ rows: [], hasNext: false, total: 0 }),
+  ]);
   const documentIds = documents.rows.map((document) => document.id);
   const [officialFiles, emailDeliveries, customerEmail] = await Promise.all([
     listOfficialArubaFiles(documentIds),
@@ -143,10 +131,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
     documents,
-    batches,
-    unbatched,
-    arubaDowngradeRequired: arubaSettings.mode.value !== arubaSettings.effectiveMode,
-    arubaConfiguredMode: arubaSettings.mode.value,
     officialFiles,
     emailDeliveries,
     emailEnabled: customerEmail.mode !== "DISABLED",
@@ -156,7 +140,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     sort,
     view,
     remoteDocuments,
-    batchCreated: url.searchParams.get("batch") === "creato",
     fileImported: url.searchParams.get("file") === "importato",
     arubaLookupRequested: url.searchParams.get("aruba") === "ricerca-richiesta",
     arubaRefreshRequested: url.searchParams.get("aruba") === "aggiornamento-richiesto",
@@ -188,18 +171,6 @@ export async function action({ request }: Route.ActionArgs) {
     }
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
-    if (form.get("intent") === "create-aruba-batch") {
-      await createBatchForDocuments(
-        form.getAll("documentId"),
-        actor,
-        form.get("confirmArubaDowngrade") === "yes",
-      );
-      return redirect("/documenti?batch=creato");
-    }
-    if (form.get("intent") === "confirm-aruba-api-batch") {
-      await confirmArubaApiBatch(form.get("batchId") ?? "", actor);
-      return redirect("/documenti?batch=confermato");
-    }
     if (form.get("intent") === "retry-customer-email") {
       await retryCustomerEmail(
         form.get("documentId") ?? "",
@@ -255,23 +226,16 @@ export async function action({ request }: Route.ActionArgs) {
 function DocumentNotices({
   arubaLookupRequested,
   arubaRefreshRequested,
-  batchCreated,
   error,
   fileImported,
 }: {
   arubaLookupRequested: boolean;
   arubaRefreshRequested: boolean;
-  batchCreated: boolean;
   error: string | null;
   fileImported: boolean;
 }) {
   return (
     <>
-      {batchCreated ? (
-        <p className="notice" role="status">
-          {copy.documents.batchCreated}
-        </p>
-      ) : null}
       {fileImported ? (
         <p className="notice" role="status">
           {copy.documents.fileImported}
@@ -299,10 +263,6 @@ export default function Documents() {
     canApprove,
     csrfToken,
     documents,
-    batches,
-    unbatched,
-    arubaConfiguredMode,
-    arubaDowngradeRequired,
     officialFiles,
     emailDeliveries,
     emailEnabled,
@@ -311,7 +271,6 @@ export default function Documents() {
     summary,
     sort,
     view,
-    batchCreated,
     fileImported,
     remoteDocuments,
     arubaLookupRequested,
@@ -358,7 +317,6 @@ export default function Documents() {
       <DocumentNotices
         arubaLookupRequested={arubaLookupRequested}
         arubaRefreshRequested={arubaRefreshRequested}
-        batchCreated={batchCreated}
         error={error}
         fileImported={fileImported}
       />
@@ -372,9 +330,6 @@ export default function Documents() {
         />
       ) : (
         <DocumentsView
-          arubaConfiguredMode={arubaConfiguredMode}
-          arubaDowngradeRequired={arubaDowngradeRequired}
-          batches={batches}
           canApprove={canApprove}
           csrfToken={csrfToken}
           documents={documents}
@@ -385,7 +340,6 @@ export default function Documents() {
           page={page}
           summary={summary}
           sort={sort}
-          unbatched={unbatched}
           view={view}
         />
       )}

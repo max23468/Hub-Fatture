@@ -624,7 +624,9 @@ export const copy = {
     confirmProfile: "Profilo fiscale",
     confirmPayment: "Pagamento",
     confirmHelper: "Trasmissione Aruba",
-    transmissionDeferHelp: "Puoi rimandare: la conferma resta disponibile qui e in Documenti.",
+    transmissionHelp:
+      "Fattura e note di credito di questa preparazione si trasmettono da qui. Documenti mostra soltanto lo stato.",
+    transmissionDeferHelp: "Puoi rimandare: la conferma resta disponibile qui.",
     transmissionBatchHelp: (count: number) =>
       `La conferma trasmette insieme i ${count} documenti approvati nello stesso passaggio.`,
     transmissionUnavailable:
@@ -642,16 +644,19 @@ export const copy = {
     emailAttachment: "Allegato",
     emailSend: "Invia dopo il primo esito SdI DELIVERED o NOT_DELIVERED.",
     emailSkip: "Non inviare per questo documento.",
-    documentOnlyMode: "Crea e archivia il documento, senza trasmetterlo ad Aruba",
-    contextualTransmissionMode:
-      "Dopo la creazione potrai scegliere esplicitamente se avviare la trasmissione",
-    automaticApiMode:
-      "Dopo l’approvazione viene preparata automaticamente la trasmissione API, solo con i controlli attivi",
     confirmArubaDowngrade: (configuredMode: string) =>
       `La modalità ${configuredMode === "AUTOMATIC_AFTER_APPROVAL" ? "automatica" : "con conferma"} non è disponibile: confermo di creare soltanto il documento, senza trasmissione Aruba.`,
     irreversibleNumbering:
       "Con l’approvazione viene assegnato automaticamente il prossimo numero fiscale disponibile. Il numero sarà definitivo e non potrà essere riutilizzato per un altro documento.",
     approve: "Approva fattura",
+    approveAndTransmit: "Approva e trasmetti",
+    arubaPath: "Percorso Aruba",
+    arubaModeSummary: (mode: string) =>
+      mode === "AUTOMATIC_AFTER_APPROVAL"
+        ? "l’approvazione prepara subito la trasmissione API, con i controlli attivi"
+        : mode === "CONTEXTUAL_CONFIRMATION"
+          ? "dopo l’approvazione scegli esplicitamente se avviare la trasmissione"
+          : "il documento viene creato e archiviato, senza trasmissione ad Aruba",
     arubaInventoryTitle: "Stato inventario Aruba",
     arubaInventoryUpdated: (updatedAt: string) => `ultima sincronizzazione ${updatedAt}`,
     arubaInventoryNever: "nessuna sincronizzazione completata",
@@ -786,7 +791,6 @@ export const copy = {
     availableFiles: (count: number) =>
       `${count} ${count === 1 ? "file disponibile" : "file disponibili"}`,
     noOfficialFiles: "Nessun file ufficiale importato.",
-    batchCreated: "Batch Aruba creato con manifest immutabile.",
     fileImported: "File ufficiale importato e verificato.",
     importOfficial: "Importa file ufficiale",
     fileType: "Tipo di file",
@@ -815,32 +819,8 @@ export const copy = {
       ARUBA_PDF: "PDF Aruba",
       SDI_NOTIFICATION: "Notifica SdI",
     } as Record<string, string>,
-    manualBatchTitle: "Prepara documenti già approvati",
-    manualBatchHelp: "Crea un manifest per i documenti approvati che non hanno ancora un batch.",
-    manualBatchCount: (count: number) =>
-      `${count} ${count === 1 ? "documento da preparare" : "documenti da preparare"}`,
-    createBatch: "Crea batch Aruba",
-    batchesTitle: "Batch Aruba",
-    batchesHelp:
-      "Ogni batch resta legato ai documenti, alle revisioni e agli hash approvati. Uno stato incerto richiede readback.",
-    batchesCount: (count: number) => `${count} ${count === 1 ? "batch" : "batch"}`,
-    batchCreatedAt: "Creato",
-    batchLastReadback: "Ultimo readback",
-    batchNeverRead: "Non ancora eseguito",
-    batchActions: "Azioni batch",
-    batchDocumentResults: "Esiti per documento",
-    batchSummary: (count: number, mode: string) => {
-      const label =
-        mode === "AUTOMATIC_AFTER_APPROVAL"
-          ? "Invio automatico dopo approvazione"
-          : mode === "CONTEXTUAL_CONFIRMATION"
-            ? "Chiedi conferma prima dell’invio"
-            : "Crea solo il documento";
-      return `${count} ${count === 1 ? "documento" : "documenti"} · ${label}`;
-    },
-    lastReadback: (value: string) => `ultimo readback ${value}`,
+    openPreparationToTransmit: "Apri la preparazione per trasmettere",
     confirmApiTransmission: "Trasmetti ora",
-    retryBatch: "Prepara nuovo tentativo",
     arubaBatchStatus: {
       ...arubaTransmissionStatusCopy,
       PREPARED: "Preparato",

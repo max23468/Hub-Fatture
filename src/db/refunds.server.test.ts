@@ -934,6 +934,26 @@ test(
       );
       assert.ok(approved.batchId);
       assert.equal(approved.fiscalNumber, "FPR 0008/26");
+      // La nota di credito appartiene alla preparazione della fattura: la sua trasmissione
+      // compare accanto a quella della fattura, unico punto in cui si conferma un invio.
+      const outbound = await import("./aruba-api-outbound.server.ts");
+      const transmissions = await outbound.listBillingCaseArubaTransmissions(
+        approved.billingCaseId,
+        "DOCUMENT_ONLY",
+      );
+      assert.deepEqual(
+        transmissions.find((transmission) => transmission.documentId === noteId),
+        {
+          documentId: noteId,
+          kind: "CREDIT_NOTE",
+          fiscalLabel: "FPR 0008/26",
+          batchId: approved.batchId,
+          status: "DOCUMENT_ONLY",
+          documentCount: 1,
+          awaitingConfirmation: false,
+          confirmable: false,
+        },
+      );
       assert.deepEqual(
         (
           await client.query(

@@ -213,6 +213,36 @@
   grid-area: transmission;
 }
 
+.preparation-transmission__documents {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: var(--space-4);
+  list-style: none;
+}
+
+.preparation-transmission__document {
+  display: grid;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+}
+
+.preparation-transmission__document:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.preparation-transmission__document > div {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.preparation-transmission__document > div > span {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
 .preparation-inventory {
   grid-area: inventory;
 }
