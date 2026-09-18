@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.7
+
+- Nella preparazione fattura, quando la fattura è approvabile o una trasmissione Aruba attende conferma, una barra ancorata al fondo dello schermo riporta documento e totale e porta con `Vai all’approvazione` o `Vai alla trasmissione` direttamente al pulsante, lasciando visibile sopra la conferma finale. La barra scompare quando il pulsante è a schermo e non approva né trasmette da sola.
+- Le schede `Approva fattura` e `Trasmissione Aruba` sono evidenziate quando l’azione è disponibile e i relativi pulsanti sono più grandi. I titoli dell’approvazione e del comparatore fiscale hanno ora l’identificativo a cui le sezioni rimandavano per le tecnologie assistive.
+
 ## 1.4.6
 
 - Node.js passa alla 26.8.2 e le dipendenze npm, comprese quelle transitive, sono aggiornate alle ultime versioni stabili. `nodemailer` passa alla major 10, che pubblica i propri tipi e rende superfluo `@types/nodemailer`. L’immagine applicativa usa la nuova base Node Trixie Slim, uno snapshot Debian aggiornato e nessuna vulnerabilità alta o critica correggibile rilevata dalla scansione.

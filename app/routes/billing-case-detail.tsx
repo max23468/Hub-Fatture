@@ -10,6 +10,7 @@ import { ComparisonTable } from "../components/comparison-table";
 import { CustomerEditor } from "../components/customer-editor";
 import { CustomerEmailApprovalFields } from "../components/customer-email-approval";
 import { DetailSectionHeader } from "../components/detail-section-header";
+import { PreparationActionBar } from "../components/preparation-action-bar";
 import { PreparationAnomalies } from "../components/preparation-anomalies";
 import { ReconciledDocuments } from "../components/reconciled-documents";
 import { SortableHeader, useSortableRows } from "../components/sortable-table";
@@ -505,6 +506,7 @@ function InvoiceComparisonCard({ projection }: { projection: InvoiceProjection }
       <DetailSectionHeader
         description={copy.document.comparisonHelp}
         icon={<CircleCheck size={22} strokeWidth={1.8} />}
+        id="comparatore-fiscale"
         title={copy.document.comparisonTitle}
       />
       <p className="preparation-check__status">
@@ -723,6 +725,7 @@ function ApprovalForm({
       <ApprovalConfirmations projection={projection} publicNumber={publicNumber} />
       <button
         className="button preparation-approval__submit"
+        id="approva-fattura"
         name="confirmApproval"
         value="yes"
         type="submit"
@@ -758,6 +761,7 @@ function ApprovalCard({
       <DetailSectionHeader
         description={copy.document.approvalHelp}
         icon={<CircleCheck size={22} strokeWidth={1.8} />}
+        id="approvazione-fattura"
         title={copy.document.approvalTitle}
       />
       <ApprovalStatusNotice
@@ -791,10 +795,11 @@ function TransmissionCard({
     copy.documents.arubaBatchStatus[transmission.status] ??
     copy.common.unavailable;
   return (
-    <section className="card preparation-transmission">
+    <section className="card preparation-transmission" aria-labelledby="trasmissione-aruba">
       <DetailSectionHeader
         description={status}
         icon={<Send size={22} strokeWidth={1.8} />}
+        id="trasmissione-aruba"
         title={copy.document.confirmHelper}
       />
       {transmission.awaitingConfirmation && canApprove ? (
@@ -809,7 +814,12 @@ function TransmissionCard({
               </p>
             ) : null}
             <p>{copy.document.transmissionDeferHelp}</p>
-            <button className="button" disabled={pending} type="submit">
+            <button
+              className="button preparation-transmission__submit"
+              disabled={pending}
+              id="trasmetti-fattura"
+              type="submit"
+            >
               {copy.documents.confirmApiTransmission}
             </button>
           </Form>
@@ -819,6 +829,44 @@ function TransmissionCard({
       ) : null}
     </section>
   );
+}
+
+/** Scorciatoia verso l'unica azione principale disponibile: approvazione o trasmissione. */
+function PrimaryActionShortcut({
+  canApprove,
+  canShowApproval,
+  projection,
+  publicNumber,
+  transmission,
+}: {
+  canApprove: boolean;
+  canShowApproval: boolean;
+  projection: InvoiceProjection;
+  publicNumber: string;
+  transmission: ArubaTransmission | null;
+}) {
+  const detail = `${copy.preparation.title(publicNumber)} · ${euros(projection.total)}`;
+  if (canShowApproval) {
+    return (
+      <PreparationActionBar
+        action={copy.document.approvalShortcut}
+        detail={detail}
+        label={copy.document.approvalShortcutLabel}
+        targetId="approva-fattura"
+      />
+    );
+  }
+  if (transmission?.awaitingConfirmation && transmission.confirmable && canApprove) {
+    return (
+      <PreparationActionBar
+        action={copy.document.transmissionShortcut}
+        detail={detail}
+        label={copy.document.transmissionShortcutLabel}
+        targetId="trasmetti-fattura"
+      />
+    );
+  }
+  return null;
 }
 
 function preparationWorkflowLayout({
@@ -913,6 +961,13 @@ function InvoiceDocument({
         ) : null}
         {activity}
       </div>
+      <PrimaryActionShortcut
+        canApprove={canApprove}
+        canShowApproval={canShowApproval}
+        projection={projection}
+        publicNumber={publicNumber}
+        transmission={transmission}
+      />
     </>
   );
 }
