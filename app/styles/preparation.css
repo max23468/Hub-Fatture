@@ -221,6 +221,18 @@
   grid-area: approval;
 }
 
+.preparation-approval:not(.preparation-approval--compact),
+.preparation-transmission:has(.preparation-transmission__submit) {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+/* Il collegamento della barra punta all'azione: lo stacco lascia sopra le conferme da leggere. */
+.preparation-approval__submit,
+.preparation-transmission__submit {
+  scroll-margin-top: 55vh;
+}
+
 .preparation-activity {
   grid-area: activity;
   min-width: 0;
@@ -404,9 +416,48 @@
   white-space: nowrap;
 }
 
-.preparation-approval__submit {
+.preparation-approval__submit,
+.preparation-transmission__submit {
   width: fit-content;
   min-width: 12rem;
+  height: 3.25rem;
+  font-size: 1.05rem;
+}
+
+/* L'azione principale resta raggiungibile mentre si scorrono i dati della preparazione.
+   `.app-main` ritaglia l'asse orizzontale e diventa blocco contenitore: la barra resta
+   ancorata con `sticky`, che non dipende dal viewport. */
+.preparation-action-bar {
+  position: sticky;
+  z-index: 25;
+  bottom: clamp(1rem, 4vw, 2rem);
+  display: flex;
+  width: fit-content;
+  max-inline-size: 100%;
+  margin-top: var(--space-6);
+  margin-left: auto;
+  align-items: center;
+  gap: var(--space-6);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-3) var(--space-4);
+}
+
+.preparation-action-bar__label {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.preparation-action-bar__label small {
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.preparation-action-bar__link {
+  flex: 0 0 auto;
 }
 
 @media (max-width: 64rem) {
@@ -485,8 +536,17 @@
 
   .preparation-edit-form__submit,
   .preparation-inventory .button,
-  .preparation-approval__submit {
+  .preparation-approval__submit,
+  .preparation-transmission__submit {
     width: 100%;
+  }
+
+  .preparation-action-bar {
+    width: auto;
+    margin-left: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
   }
 
   .preparation-approval__form fieldset {

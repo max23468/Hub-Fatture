@@ -611,6 +611,10 @@ export const copy = {
     approvalTitle: "Approva fattura",
     approvalHelp:
       "Controlla il riepilogo finale. Il numero fiscale verrà assegnato automaticamente.",
+    approvalShortcut: "Vai all’approvazione",
+    approvalShortcutLabel: "Fattura pronta da approvare",
+    transmissionShortcut: "Vai alla trasmissione",
+    transmissionShortcutLabel: "Trasmissione Aruba da confermare",
     confirmPending: "Confermo che il pagamento è ancora pendente e voglio proseguire.",
     confirmDifference: "Confermo la differenza d’importo motivata nella bozza.",
     finalConfirmation: "Conferma finale",
