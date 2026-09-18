@@ -12,6 +12,7 @@ export const documentRowsSql = `
            billing_cases.customer_snapshot_json ->> 'fiscalCode'), '[^A-Za-z0-9]', '', 'g'))
            AS recipient_tax_identity,
          aruba_current.id AS aruba_batch_id, aruba_current.status AS aruba_status,
+         aruba_current.batch_status AS aruba_batch_status,
          coalesce(aruba_current.awaiting_confirmation, false) AS aruba_awaiting_confirmation,
          aruba_current.provider_filename, aruba_current.provider_sdi_id,
          aruba_current.remote_updated_at, aruba_current.remote_status_changed_at,
@@ -29,6 +30,7 @@ export const documentRowsSql = `
     ON source_billing_cases.id = documents.source_billing_case_id
   LEFT JOIN LATERAL (
     SELECT aruba_batches.id, coalesce(submissions.status, aruba_batches.status) AS status,
+           aruba_batches.status AS batch_status,
            aruba_batches.transport = 'API' AND aruba_batches.status = 'AWAITING_CONFIRMATION'
              AS awaiting_confirmation,
            submissions.provider_filename, submissions.provider_sdi_id,

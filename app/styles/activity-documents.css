@@ -487,9 +487,7 @@
   line-height: 1.1;
 }
 
-.document-archive,
-.document-batches,
-.document-task-panel {
+.document-archive {
   overflow: hidden;
   padding: 0;
 }
@@ -644,8 +642,7 @@
 .document-row__customer > small,
 .document-row__state > small,
 .document-row__email > small,
-.document-row__facts small,
-.document-batch-list__dates small {
+.document-row__facts small {
   color: var(--color-text-muted);
   font-size: 0.75rem;
   font-weight: 650;
@@ -850,88 +847,6 @@
 .document-import__form .button {
   grid-column: 1 / -1;
   justify-self: start;
-}
-
-.document-batch-picker {
-  display: grid;
-  max-height: 20rem;
-  overflow-y: auto;
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.document-batch-option {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-  padding: var(--space-3) var(--space-6);
-}
-
-.document-batch-option:last-child {
-  border-bottom: 0;
-}
-
-.document-batch-option > input {
-  width: auto;
-  margin: 0;
-}
-
-.document-batch-option > span {
-  display: grid;
-  min-width: 0;
-}
-
-.document-batch-option small {
-  overflow: hidden;
-  color: var(--color-text-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.document-task-panel__action {
-  margin: var(--space-4) var(--space-6) var(--space-6);
-}
-
-.document-batch-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.document-batch-list > li {
-  display: grid;
-  grid-template-columns: minmax(14rem, 0.9fr) minmax(22rem, 1.4fr) auto;
-  align-items: center;
-  gap: var(--space-6);
-  border-top: 1px solid var(--color-border);
-  padding: var(--space-4) var(--space-6);
-}
-
-.document-batch-list__main,
-.document-batch-list__dates > span {
-  display: grid;
-  min-width: 0;
-  gap: 0.125rem;
-}
-
-.document-batch-list__main > span {
-  color: var(--color-text-muted);
-  font-size: 0.875rem;
-}
-
-.document-batch-list__dates {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-
-.document-batch-list__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-3);
 }
 
 .document-empty {

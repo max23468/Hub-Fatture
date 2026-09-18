@@ -34,7 +34,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     const user = await requireSessionUser(request);
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
-    await approveCreditNote(
+    const approved = await approveCreditNote(
       params.documentId,
       {
         draftVersion: form.get("draftVersion"),
@@ -47,7 +47,8 @@ export async function action({ request, params }: Route.ActionArgs) {
       },
       { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
     );
-    return redirect("/documenti");
+    // La trasmissione si conferma dalla preparazione: l'approvazione porta lì.
+    return redirect(`/ordini/preparazione/${approved.billingCaseId}`);
   } catch (error) {
     if (error instanceof Response) throw error;
     const result = publicError(error);
@@ -202,6 +203,10 @@ export default function CreditNoteDetail() {
                   </label>
                 </>
               )}
+              <p className="field-help">
+                <strong>{`${copy.document.arubaPath}:`}</strong>{" "}
+                {copy.document.arubaModeSummary(note.arubaMode)}
+              </p>
               <label className="checkbox-row credit-note-confirmation">
                 <input name="confirmApproval" required type="checkbox" value="yes" />
                 {copy.creditNote.confirmation}

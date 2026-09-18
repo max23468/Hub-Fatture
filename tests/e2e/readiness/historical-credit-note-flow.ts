@@ -153,7 +153,8 @@ export async function verifyHistoricalAndCreditNoteFlow(page: Page) {
     .getByLabel(/Confermo rimborsi, riferimenti alla fattura, totale e numerazione irreversibile/)
     .check();
   await page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }).click();
-  await expect(page).toHaveURL(/\/documenti$/, { timeout: 60_000 });
+  // L'approvazione porta alla preparazione: è lì che si conferma la trasmissione.
+  await expect(page).toHaveURL(/\/ordini\/preparazione\/\d+$/, { timeout: 60_000 });
 
   const note = (
     await database.getPool().query<{
@@ -213,7 +214,7 @@ export async function verifyHistoricalAndCreditNoteFlow(page: Page) {
       .status,
     "APPROVED",
   );
-  await page.reload();
+  await page.goto("/documenti?vista=note-credito");
   await expect(
     page.locator(".document-row").filter({
       has: page.locator(`a[href='/documenti/${noteId}/nota']`),

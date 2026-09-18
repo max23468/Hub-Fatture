@@ -1104,7 +1104,7 @@ Il polling ordinario viene ripianificato dopo dieci minuti dal completamento del
 
 La scelta è globale e rigida per approvazioni singole e massive. La UI mostra l'effetto concreto ma non offre override locali. Se la modalità richiede invio e il canale non è disponibile, l'unico downgrade è la conferma esplicita `Approva e crea solo documento`.
 
-Il cambio di modalità vale per le approvazioni successive. Un batch in attesa di `Trasmetti ora` resta confermabile dalla preparazione approvata o da Documenti anche dopo il passaggio a `Invio automatico dopo approvazione`; `Crea solo il documento` o la disattivazione degli invii sospendono conferma e invio. Un batch creato in modalità automatica richiede invece che la modalità automatica sia ancora attiva al momento dell'invio.
+Il cambio di modalità vale per le approvazioni successive. La conferma `Trasmetti ora` vive soltanto nella preparazione, che copre la fattura e le note di credito collegate; un batch in attesa resta confermabile lì anche dopo il passaggio a `Invio automatico dopo approvazione`; `Crea solo il documento` o la disattivazione degli invii sospendono conferma e invio. Un batch creato in modalità automatica richiede invece che la modalità automatica sia ancora attiva al momento dell'invio.
 
 ### 10.4 Flusso atteso
 
@@ -1486,6 +1486,8 @@ Il server blocca approvazione e numerazione se una sincronizzazione Aruba è att
 La sezione riunisce fatture, note di credito e documenti nei diversi stati di trasmissione. Le viste interne evitano tre archivi separati e mantengono filtri coerenti per tipo, stato, cliente e data.
 
 La vista interna `Inventario Aruba` mostra in modo neutro i documenti osservati, con origine, stato remoto, ultimo aggiornamento e stato del collegamento, senza creare ordini locali. Un documento senza riferimenti ordine espliciti né match Shopify/eBay compatibili resta visibile per l’anti-duplicazione ma non è una verifica bloccante. Riferimenti incompatibili, match potenziali, ambiguità, conflitti, file ufficiali mancanti ed errori generano un solo controllo e la riga dell'inventario rimanda a quello.
+
+`Documenti` è archivio e monitoraggio: mostra stato, identificativi, cronologia, file e azioni di lettura, ma nessuna azione che avvii o autorizzi una trasmissione. Le conferme di invio appartengono alla preparazione, raggiungibile dalla riga del documento quando una trasmissione attende conferma.
 
 La ricerca locale dei documenti filtra tipo, stato, origine, cliente e intervallo date senza chiamare
 Aruba. Una verifica remota esplicita offre i filtri ufficiali entro finestre di 48 ore e un lookup

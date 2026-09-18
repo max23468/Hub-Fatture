@@ -766,14 +766,6 @@ test(
       const owner = { id: 1, canApprove: true, requestId: "aruba-m5" };
       const assistedBatchId = approved[0]!.batchId;
       const invalidBatchId = approved[1]!.batchId;
-      const invalidDocumentId = (
-        await database
-          .getPool()
-          .query<{ document_id: string }>(
-            "SELECT document_id FROM aruba_batch_documents WHERE batch_id = $1",
-            [invalidBatchId],
-          )
-      ).rows[0]!.document_id;
       assert.deepEqual(
         (
           await database.getPool().query(
@@ -1172,21 +1164,6 @@ test(
           max_attempts: 1,
         },
       );
-      await database
-        .getPool()
-        .query("ALTER TABLE aruba_batch_documents DISABLE TRIGGER aruba_batch_documents_immutable");
-      await database
-        .getPool()
-        .query("DELETE FROM aruba_batch_documents WHERE document_id = $1", [invalidDocumentId]);
-      await database
-        .getPool()
-        .query("ALTER TABLE aruba_batch_documents ENABLE TRIGGER aruba_batch_documents_immutable");
-      const concurrentBatches = await Promise.allSettled([
-        aruba.createBatchForDocuments([invalidDocumentId], owner),
-        aruba.createBatchForDocuments([invalidDocumentId], owner),
-      ]);
-      assert.equal(concurrentBatches.filter((result) => result.status === "fulfilled").length, 1);
-      assert.equal(concurrentBatches.filter((result) => result.status === "rejected").length, 1);
       await unlink(path.join(storage, rows[0]!.relative_path));
       assert.ok(
         (await documentStorage.readDocumentXml(rows[0]!.id))?.includes(

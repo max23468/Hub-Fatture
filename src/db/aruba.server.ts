@@ -21,7 +21,6 @@ import { writeAudit } from "./audit.server.ts";
 import { customerEmailTriggerStatus, scheduleCustomerEmail } from "./email.server.ts";
 import { scheduleArubaEmissionEffects } from "./aruba-emission-effects.server.ts";
 import { getPool, registerJoinedTransactionFile, withTransaction } from "./client.server.ts";
-import { createArubaApiBatch } from "./aruba-api-outbound.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { parseDatabaseRevision } from "./database-revision.ts";
 
@@ -80,68 +79,6 @@ export async function setArubaSettings(
       after: { mode: mode.data },
       requestId: actor.requestId,
     });
-  });
-}
-
-export async function createBatchForDocuments(
-  documentIds: string[],
-  actor: ArubaActor,
-  confirmDocumentOnlyDowngrade = false,
-) {
-  if (!actor.canApprove) throw new AppError("ARUBA_OPERATION_FORBIDDEN", 403);
-  const ids = [...new Set(documentIds)];
-  if (!ids.length || ids.length > 300 || ids.some((id) => !isDatabaseId(id))) {
-    throw new AppError("ARUBA_BATCH_INVALID", 422);
-  }
-  return withTransaction(async (client) => {
-    const locked = await client.query<{ id: string }>(
-      `SELECT id FROM documents
-       WHERE id = ANY($1::bigint[])
-       ORDER BY id
-       FOR UPDATE`,
-      [ids],
-    );
-    if (locked.rows.length !== ids.length) throw new AppError("ARUBA_BATCH_INVALID", 409);
-    const rows = await client.query<{
-      id: string;
-      draft_version: number;
-      xml_sha256: string;
-      size_bytes: number;
-      series: string;
-      fiscal_year: number;
-      fiscal_number: number;
-      document_date: string;
-      total_amount: number;
-    }>(
-      `SELECT documents.id, documents.draft_version, documents.xml_sha256,
-              storage_objects.size_bytes, documents.series, documents.fiscal_year,
-              documents.fiscal_number, documents.document_date::text, documents.total_amount
-       FROM documents
-       JOIN storage_objects ON storage_objects.id = documents.storage_object_id
-       LEFT JOIN aruba_batch_documents ON aruba_batch_documents.document_id = documents.id
-       WHERE documents.id = ANY($1::bigint[]) AND documents.status = 'APPROVED'
-         AND documents.origin = 'HUB'
-         AND aruba_batch_documents.document_id IS NULL
-       FOR UPDATE OF documents`,
-      [ids],
-    );
-    if (rows.rows.length !== ids.length) throw new AppError("ARUBA_BATCH_INVALID", 409);
-    return createArubaApiBatch(
-      client,
-      rows.rows.map((row) => ({
-        id: row.id,
-        revision: row.draft_version,
-        sha256: row.xml_sha256,
-        filename: `${row.series}-${String(row.fiscal_number).padStart(4, "0")}-${String(row.fiscal_year).slice(-2)}.xml`,
-        sizeBytes: row.size_bytes,
-        fiscalNumber: `${row.series} ${String(row.fiscal_number).padStart(4, "0")}/${String(row.fiscal_year).slice(-2)}`,
-        documentDate: row.document_date,
-        totalAmount: row.total_amount,
-      })),
-      actor,
-      undefined,
-      confirmDocumentOnlyDowngrade,
-    );
   });
 }
 
@@ -289,31 +226,6 @@ export async function listArubaBatches() {
       AND submissions.attempt_number = batches.attempt_number
      GROUP BY batches.id
      ORDER BY batches.created_at DESC LIMIT 100`,
-  );
-  return result.rows;
-}
-
-export async function listUnbatchedApprovedDocuments() {
-  const result = await getPool().query<{
-    id: string;
-    fiscal_label: string;
-    customer_name: string;
-    total_amount: number;
-  }>(
-    `SELECT documents.id,
-            documents.series || ' ' || lpad(documents.fiscal_number::text, 4, '0') || '/' ||
-              right(documents.fiscal_year::text, 2) AS fiscal_label,
-            billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
-            documents.total_amount
-     FROM documents
-     JOIN billing_cases ON billing_cases.id = documents.billing_case_id
-     WHERE documents.status = 'APPROVED'
-       AND documents.origin = 'HUB'
-       AND NOT EXISTS (
-         SELECT 1 FROM aruba_batch_documents
-         WHERE aruba_batch_documents.document_id = documents.id
-       )
-     ORDER BY documents.id`,
   );
   return result.rows;
 }

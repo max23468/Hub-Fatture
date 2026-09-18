@@ -412,18 +412,32 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
       `UPDATE settings SET value_json = '"AUTOMATIC_AFTER_APPROVAL"'::jsonb WHERE key = 'aruba_mode'`,
     );
     const contextualDocumentId = contextualBatch.documents[0]!.id;
+    const contextualCaseId = (
+      await pool.query<{ billing_case_id: string }>(
+        "SELECT billing_case_id::text FROM documents WHERE id = $1",
+        [contextualDocumentId],
+      )
+    ).rows[0]!.billing_case_id;
     assert.deepEqual(
-      await outbound.getDocumentArubaTransmission(contextualDocumentId, "AUTOMATIC_AFTER_APPROVAL"),
-      {
-        batchId: contextualBatch.batchId,
-        status: "AWAITING_CONFIRMATION",
-        documentCount: 1,
-        awaitingConfirmation: true,
-        confirmable: true,
-      },
+      await outbound.listBillingCaseArubaTransmissions(
+        contextualCaseId,
+        "AUTOMATIC_AFTER_APPROVAL",
+      ),
+      [
+        {
+          documentId: contextualDocumentId,
+          kind: "INVOICE",
+          fiscalLabel: "FPR 1015/26",
+          batchId: contextualBatch.batchId,
+          status: "AWAITING_CONFIRMATION",
+          documentCount: 1,
+          awaitingConfirmation: true,
+          confirmable: true,
+        },
+      ],
     );
     assert.equal(
-      (await outbound.getDocumentArubaTransmission(contextualDocumentId, "DOCUMENT_ONLY"))
+      (await outbound.listBillingCaseArubaTransmissions(contextualCaseId, "DOCUMENT_ONLY"))[0]
         ?.confirmable,
       false,
     );

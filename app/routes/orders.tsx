@@ -392,12 +392,8 @@ function MassApprovalPanel({
           ))}
         </div>
         <p>
-          <strong>Percorso Aruba:</strong>{" "}
-          {arubaMode === "AUTOMATIC_AFTER_APPROVAL"
-            ? copy.document.automaticApiMode
-            : arubaMode === "CONTEXTUAL_CONFIRMATION"
-              ? copy.document.contextualTransmissionMode
-              : copy.document.documentOnlyMode}
+          <strong>{`${copy.document.arubaPath}:`}</strong>{" "}
+          {copy.document.arubaModeSummary(arubaMode)}
         </p>
         <p className="warning">{copy.orders.massApprovalConsequence}</p>
         {arubaDowngradeRequired ? (

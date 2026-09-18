@@ -693,6 +693,10 @@ function ApprovalConfirmations({
               {paymentStatusLabels[projection.paymentStatus]} · {projection.paymentMethod}
             </dd>
           </div>
+          <div>
+            <dt>{copy.document.arubaPath}</dt>
+            <dd>{copy.document.arubaModeSummary(projection.arubaMode)}</dd>
+          </div>
         </dl>
         <p className="warning">{copy.document.irreversibleNumbering}</p>
       </fieldset>
@@ -730,7 +734,9 @@ function ApprovalForm({
         value="yes"
         type="submit"
       >
-        {copy.document.approve}
+        {projection.arubaMode === "AUTOMATIC_AFTER_APPROVAL"
+          ? copy.document.approveAndTransmit
+          : copy.document.approve}
       </button>
     </InventoryApprovalForm>
   );
@@ -777,9 +783,20 @@ function ApprovalCard({
   );
 }
 
-type ArubaTransmission = NonNullable<InvoiceProjection["arubaTransmission"]>;
+type ArubaTransmission = InvoiceProjection["arubaTransmissions"][number];
 
-function TransmissionCard({
+function transmissionLabel(transmission: ArubaTransmission) {
+  const kind =
+    transmission.kind === "CREDIT_NOTE" ? copy.documents.creditNote : copy.documents.invoice;
+  return `${kind} ${transmission.fiscalLabel}`;
+}
+
+/** Ogni documento della preparazione ha il proprio pulsante: l'id resta univoco. */
+function transmissionSubmitId(transmission: ArubaTransmission) {
+  return `trasmetti-documento-${transmission.documentId}`;
+}
+
+function TransmissionRow({
   canApprove,
   csrfToken,
   transmission,
@@ -789,19 +806,19 @@ function TransmissionCard({
   transmission: ArubaTransmission;
 }) {
   const navigation = useNavigation();
-  const pending = navigation.formData?.get("intent") === "confirm-aruba-api-batch";
+  const pending =
+    navigation.formData?.get("intent") === "confirm-aruba-api-batch" &&
+    navigation.formData.get("batchId") === transmission.batchId;
   const status =
     copy.documents.arubaDocumentStatus[transmission.status] ??
     copy.documents.arubaBatchStatus[transmission.status] ??
     copy.common.unavailable;
   return (
-    <section className="card preparation-transmission" aria-labelledby="trasmissione-aruba">
-      <DetailSectionHeader
-        description={status}
-        icon={<Send size={22} strokeWidth={1.8} />}
-        id="trasmissione-aruba"
-        title={copy.document.confirmHelper}
-      />
+    <li className="preparation-transmission__document">
+      <div>
+        <strong>{transmissionLabel(transmission)}</strong>
+        <span>{status}</span>
+      </div>
       {transmission.awaitingConfirmation && canApprove ? (
         transmission.confirmable ? (
           <Form method="post">
@@ -817,7 +834,7 @@ function TransmissionCard({
             <button
               className="button preparation-transmission__submit"
               disabled={pending}
-              id="trasmetti-fattura"
+              id={transmissionSubmitId(transmission)}
               type="submit"
             >
               {copy.documents.confirmApiTransmission}
@@ -827,42 +844,77 @@ function TransmissionCard({
           <p className="warning">{copy.document.transmissionUnavailable}</p>
         )
       ) : null}
+    </li>
+  );
+}
+
+function TransmissionCard({
+  canApprove,
+  csrfToken,
+  transmissions,
+}: {
+  canApprove: boolean;
+  csrfToken: string;
+  transmissions: ArubaTransmission[];
+}) {
+  return (
+    <section className="card preparation-transmission" aria-labelledby="trasmissione-aruba">
+      <DetailSectionHeader
+        description={copy.document.transmissionHelp}
+        icon={<Send size={22} strokeWidth={1.8} />}
+        id="trasmissione-aruba"
+        title={copy.document.confirmHelper}
+      />
+      <ul className="preparation-transmission__documents">
+        {transmissions.map((transmission) => (
+          <TransmissionRow
+            canApprove={canApprove}
+            csrfToken={csrfToken}
+            key={transmission.documentId}
+            transmission={transmission}
+          />
+        ))}
+      </ul>
     </section>
   );
 }
 
-/** Scorciatoia verso l'unica azione principale disponibile: approvazione o trasmissione. */
+/** Scorciatoia verso l'azione principale disponibile: approvazione o prima trasmissione. */
 function PrimaryActionShortcut({
   canApprove,
   canShowApproval,
   projection,
   publicNumber,
-  transmission,
+  transmissions,
 }: {
   canApprove: boolean;
   canShowApproval: boolean;
   projection: InvoiceProjection;
   publicNumber: string;
-  transmission: ArubaTransmission | null;
+  transmissions: ArubaTransmission[];
 }) {
-  const detail = `${copy.preparation.title(publicNumber)} · ${euros(projection.total)}`;
   if (canShowApproval) {
     return (
       <PreparationActionBar
         action={copy.document.approvalShortcut}
-        detail={detail}
+        detail={`${copy.preparation.title(publicNumber)} · ${euros(projection.total)}`}
         label={copy.document.approvalShortcutLabel}
         targetId="approva-fattura"
       />
     );
   }
-  if (transmission?.awaitingConfirmation && transmission.confirmable && canApprove) {
+  const pending = canApprove
+    ? transmissions.find(
+        (transmission) => transmission.awaitingConfirmation && transmission.confirmable,
+      )
+    : undefined;
+  if (pending) {
     return (
       <PreparationActionBar
         action={copy.document.transmissionShortcut}
-        detail={detail}
+        detail={transmissionLabel(pending)}
         label={copy.document.transmissionShortcutLabel}
-        targetId="trasmetti-fattura"
+        targetId={transmissionSubmitId(pending)}
       />
     );
   }
@@ -921,11 +973,11 @@ function InvoiceDocument({
     arubaInventoryApprovalState(projection.arubaInventory) !== "BLOCKED";
   const showInventory = !projection.approved && inventoryNeedsAttention;
   const showApproval = !projection.approved;
-  const transmission = projection.approved ? projection.arubaTransmission : null;
+  const transmissions = projection.approved ? projection.arubaTransmissions : [];
   const workflowLayout = preparationWorkflowLayout({
     approved: projection.approved,
     canShowApproval,
-    hasTransmission: Boolean(transmission),
+    hasTransmission: transmissions.length > 0,
     showInventory,
   });
   return (
@@ -952,11 +1004,11 @@ function InvoiceDocument({
             publicNumber={publicNumber}
           />
         ) : null}
-        {transmission ? (
+        {transmissions.length ? (
           <TransmissionCard
             canApprove={canApprove}
             csrfToken={csrfToken}
-            transmission={transmission}
+            transmissions={transmissions}
           />
         ) : null}
         {activity}
@@ -966,7 +1018,7 @@ function InvoiceDocument({
         canShowApproval={canShowApproval}
         projection={projection}
         publicNumber={publicNumber}
-        transmission={transmission}
+        transmissions={transmissions}
       />
     </>
   );

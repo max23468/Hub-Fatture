@@ -1,11 +1,8 @@
 import {
   ArrowRight,
-  CircleAlert,
   Download,
   FileCheck2,
-  FileClock,
   FileText,
-  Layers3,
   Mail,
   ReceiptText,
   RefreshCw,
@@ -13,11 +10,7 @@ import {
 } from "lucide-react";
 import { Form, Link, useNavigation } from "react-router";
 
-import type {
-  listArubaBatches,
-  listOfficialArubaFiles,
-  listUnbatchedApprovedDocuments,
-} from "../../src/db/aruba.server.ts";
+import type { listOfficialArubaFiles } from "../../src/db/aruba.server.ts";
 import type {
   documentArchiveSummary,
   listDocuments,
@@ -33,8 +26,6 @@ import type { DocumentListSortKey } from "../../src/db/document-archive-types.se
 type DocumentPage = Awaited<ReturnType<typeof listDocuments>>;
 type DocumentRowData = DocumentPage["rows"][number];
 type DocumentSummary = Awaited<ReturnType<typeof documentArchiveSummary>>;
-type ArubaBatch = Awaited<ReturnType<typeof listArubaBatches>>[number];
-type UnbatchedDocument = Awaited<ReturnType<typeof listUnbatchedApprovedDocuments>>[number];
 type OfficialFile = Awaited<ReturnType<typeof listOfficialArubaFiles>>[number];
 type EmailDelivery = Awaited<ReturnType<typeof listEmailDeliveries>>[number];
 
@@ -293,6 +284,10 @@ function transmissionLabel(document: DocumentRowData) {
   if (document.origin === "ARUBA_HISTORY") return copy.documents.arubaHistory;
   if (document.status === "DRAFT") return copy.documents.notApplicable;
   if (!document.aruba_status) return copy.documents.transmissionState.NOT_PREPARED;
+  // Un documento creato senza trasmissione ha una submission ferma: vale lo stato del batch.
+  if (document.aruba_batch_status === "DOCUMENT_ONLY") {
+    return copy.documents.arubaBatchStatus.DOCUMENT_ONLY!;
+  }
   return (
     copy.documents.transmissionState[document.aruba_status] ??
     copy.documents.arubaBatchStatus[document.aruba_status] ??
@@ -480,7 +475,6 @@ function DocumentTools({
     canPrepareRedactedEmail: boolean;
     canRetryEmail: boolean;
     canRefreshAruba: boolean;
-    canConfirmTransmission: boolean;
     emailRedacted: boolean;
   };
   csrfToken: string;
@@ -489,21 +483,12 @@ function DocumentTools({
   fileCount: number;
   officialFiles: OfficialFile[];
 }) {
-  const {
-    canConfirmTransmission,
-    canImportFile,
-    canPrepareRedactedEmail,
-    canRetryEmail,
-    canRefreshAruba,
-    emailRedacted,
-  } = capabilities;
+  const { canImportFile, canPrepareRedactedEmail, canRetryEmail, canRefreshAruba, emailRedacted } =
+    capabilities;
   const navigation = useNavigation();
   const refreshPending =
     navigation.formData?.get("intent") === "refresh-aruba-status" &&
     navigation.formData.get("documentId") === document.id;
-  const confirmPending =
-    navigation.formData?.get("intent") === "confirm-aruba-api-batch" &&
-    navigation.formData.get("batchId") === document.aruba_batch_id;
   const hasArubaStatus = Boolean(document.aruba_batch_id && document.aruba_status);
   return (
     <details className="document-row__tools">
@@ -530,15 +515,11 @@ function DocumentTools({
           <section aria-labelledby={`document-actions-${document.id}`}>
             <h3 id={`document-actions-${document.id}`}>{copy.documents.arubaActions}</h3>
             <div className="document-tool-actions">
-              {canConfirmTransmission ? (
-                <Form method="post">
-                  <input name="csrf" type="hidden" value={csrfToken} />
-                  <input name="intent" type="hidden" value="confirm-aruba-api-batch" />
-                  <input name="batchId" type="hidden" value={document.aruba_batch_id ?? ""} />
-                  <button className="button" disabled={confirmPending} type="submit">
-                    {copy.documents.confirmApiTransmission}
-                  </button>
-                </Form>
+              {document.aruba_awaiting_confirmation ? (
+                <Link className="button" to={`/ordini/preparazione/${document.billing_case_id}`}>
+                  <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
+                  {copy.documents.openPreparationToTransmit}
+                </Link>
               ) : null}
               {canRefreshAruba ? (
                 <Form method="post">
@@ -577,6 +558,9 @@ function DocumentTools({
 function arubaStatusLabel(document: DocumentRowData) {
   if (document.aruba_awaiting_confirmation) {
     return copy.documents.arubaBatchStatus.AWAITING_CONFIRMATION ?? copy.common.unavailable;
+  }
+  if (document.aruba_batch_status === "DOCUMENT_ONLY") {
+    return copy.documents.arubaBatchStatus.DOCUMENT_ONLY ?? copy.common.unavailable;
   }
   return document.aruba_status
     ? (copy.documents.arubaDocumentStatus[document.aruba_status] ?? document.aruba_status)
@@ -669,14 +653,12 @@ function documentRowState({
   email,
   emailEnabled,
   officialFiles,
-  transmissionAvailable,
 }: {
   canApprove: boolean;
   document: DocumentRowData;
   email?: EmailDelivery;
   emailEnabled: boolean;
   officialFiles: OfficialFile[];
-  transmissionAvailable: boolean;
 }) {
   const emailRedacted = Boolean(email?.requires_explicit_recipient);
   const canPrepareRedactedEmail = Boolean(emailRedacted && emailEnabled && canApprove);
@@ -692,12 +674,8 @@ function documentRowState({
       document.aruba_status,
     ),
   );
-  const canConfirmTransmission = Boolean(
-    canApprove && transmissionAvailable && document.aruba_awaiting_confirmation,
-  );
   const fileCount = Number(Boolean(document.xml_sha256)) + officialFiles.length;
   return {
-    canConfirmTransmission,
     canImportFile,
     canPrepareRedactedEmail,
     canRetryEmail,
@@ -713,7 +691,7 @@ function documentRowState({
       canRetryEmail ||
       canImportFile ||
       canRefreshAruba ||
-      canConfirmTransmission ||
+      document.aruba_awaiting_confirmation ||
       emailRedacted,
     ),
     label: document.fiscal_label ?? copy.documents.draftLabel(document.public_number),
@@ -728,7 +706,6 @@ function DocumentRow({
   email,
   emailEnabled,
   officialFiles,
-  transmissionAvailable,
 }: {
   canApprove: boolean;
   csrfToken: string;
@@ -736,7 +713,6 @@ function DocumentRow({
   email?: EmailDelivery;
   emailEnabled: boolean;
   officialFiles: OfficialFile[];
-  transmissionAvailable: boolean;
 }) {
   const state = documentRowState({
     canApprove,
@@ -744,7 +720,6 @@ function DocumentRow({
     email,
     emailEnabled,
     officialFiles,
-    transmissionAvailable,
   });
 
   return (
@@ -769,146 +744,7 @@ function DocumentRow({
   );
 }
 
-function ManualBatchPanel({
-  arubaConfiguredMode,
-  arubaDowngradeRequired,
-  csrfToken,
-  documents,
-}: {
-  arubaConfiguredMode: string;
-  arubaDowngradeRequired: boolean;
-  csrfToken: string;
-  documents: UnbatchedDocument[];
-}) {
-  return (
-    <section className="dashboard-panel document-task-panel section-gap">
-      <header className="document-panel-header">
-        <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">
-          <CircleAlert size={22} strokeWidth={1.8} />
-        </span>
-        <span>
-          <h2>{copy.documents.manualBatchTitle}</h2>
-          <p>{copy.documents.manualBatchHelp}</p>
-        </span>
-        <strong>{copy.documents.manualBatchCount(documents.length)}</strong>
-      </header>
-      <Form method="post">
-        <input name="csrf" type="hidden" value={csrfToken} />
-        <input name="intent" type="hidden" value="create-aruba-batch" />
-        <div className="document-batch-picker">
-          {documents.map((document) => (
-            <label className="document-batch-option" key={document.id}>
-              <input name="documentId" type="checkbox" value={document.id} />
-              <span>
-                <strong>{document.fiscal_label}</strong>
-                <small>{document.customer_name}</small>
-              </span>
-              <strong>{euros(document.total_amount)}</strong>
-            </label>
-          ))}
-        </div>
-        {arubaDowngradeRequired ? (
-          <label className="checkbox-row">
-            <input name="confirmArubaDowngrade" required type="checkbox" value="yes" />
-            {copy.document.confirmArubaDowngrade(arubaConfiguredMode)}
-          </label>
-        ) : null}
-        <button className="button document-task-panel__action" type="submit">
-          <Layers3 aria-hidden="true" size={18} strokeWidth={1.8} />
-          {copy.documents.createBatch}
-        </button>
-      </Form>
-    </section>
-  );
-}
-
-function BatchPanel({
-  batches,
-  canApprove,
-  csrfToken,
-}: {
-  batches: ArubaBatch[];
-  canApprove: boolean;
-  csrfToken: string;
-}) {
-  return (
-    <section className="dashboard-panel document-batches section-gap">
-      <header className="document-panel-header">
-        <span className="dashboard-icon dashboard-icon--neutral" aria-hidden="true">
-          <FileClock size={22} strokeWidth={1.8} />
-        </span>
-        <span>
-          <h2>{copy.documents.batchesTitle}</h2>
-          <p>{copy.documents.batchesHelp}</p>
-        </span>
-        <strong>{copy.documents.batchesCount(batches.length)}</strong>
-      </header>
-      <ul className="document-batch-list">
-        {batches.map((batch) => (
-          <li key={batch.id}>
-            <span className="document-batch-list__main">
-              <strong>{copy.documents.batchSummary(batch.document_count, batch.mode)}</strong>
-              <span>
-                {copy.documents.arubaBatchStatus[batch.status] ?? copy.common.unavailable}
-              </span>
-            </span>
-            <span className="document-batch-list__dates">
-              <span>
-                <small>{copy.documents.batchCreatedAt}</small>
-                <time dateTime={batch.created_at}>{dateTime(batch.created_at)}</time>
-              </span>
-              <span>
-                <small>{copy.documents.batchLastReadback}</small>
-                <span>
-                  {batch.last_readback_at
-                    ? dateTime(batch.last_readback_at)
-                    : copy.documents.batchNeverRead}
-                </span>
-              </span>
-            </span>
-            <details className="technical-details">
-              <summary>{copy.documents.batchDocumentResults}</summary>
-              <ul>
-                {batch.documents.map((document) => (
-                  <li key={document.id}>
-                    <strong>{document.fiscal_label}</strong>
-                    {" · "}
-                    {copy.documents.arubaDocumentStatus[document.status] ?? document.status}
-                    {document.error_code ? ` · ${document.error_code}` : ""}
-                    {document.error_message ? ` · ${document.error_message}` : ""}
-                  </li>
-                ))}
-              </ul>
-            </details>
-            <div aria-label={copy.documents.batchActions} className="document-batch-list__actions">
-              {canApprove &&
-              batch.transport === "API" &&
-              batch.status === "AWAITING_CONFIRMATION" ? (
-                <Form method="post">
-                  <input name="csrf" type="hidden" value={csrfToken} />
-                  <input name="intent" type="hidden" value="confirm-aruba-api-batch" />
-                  <input name="batchId" type="hidden" value={batch.id} />
-                  <button className="button" type="submit">
-                    {copy.documents.confirmApiTransmission}
-                  </button>
-                </Form>
-              ) : null}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function arubaTransmissionAvailable(configuredMode: string, downgradeRequired: boolean) {
-  return !downgradeRequired && configuredMode !== "DOCUMENT_ONLY";
-}
-
 export function DocumentsView({
-  arubaConfiguredMode,
-  arubaDowngradeRequired,
-  batches,
   canApprove,
   csrfToken,
   documents,
@@ -919,12 +755,8 @@ export function DocumentsView({
   page,
   summary,
   sort,
-  unbatched,
   view,
 }: {
-  arubaConfiguredMode: string;
-  arubaDowngradeRequired: boolean;
-  batches: ArubaBatch[];
   canApprove: boolean;
   csrfToken: string;
   documents: DocumentPage;
@@ -935,13 +767,8 @@ export function DocumentsView({
   page: number;
   summary: DocumentSummary;
   sort: SortState<DocumentListSortKey>;
-  unbatched: UnbatchedDocument[];
   view: string;
 }) {
-  const transmissionAvailable = arubaTransmissionAvailable(
-    arubaConfiguredMode,
-    arubaDowngradeRequired,
-  );
   const officialFilesByDocument = new Map<string, OfficialFile[]>();
   const emailByDocument = new Map<string, EmailDelivery>();
   for (const delivery of emailDeliveries) {
@@ -957,14 +784,6 @@ export function DocumentsView({
   return (
     <>
       <DocumentOverview summary={summary} />
-      {canApprove && unbatched.length ? (
-        <ManualBatchPanel
-          arubaConfiguredMode={arubaConfiguredMode}
-          arubaDowngradeRequired={arubaDowngradeRequired}
-          csrfToken={csrfToken}
-          documents={unbatched}
-        />
-      ) : null}
       <section
         aria-labelledby="document-archive-title"
         className="dashboard-panel document-archive section-gap"
@@ -1040,7 +859,6 @@ export function DocumentsView({
                   emailEnabled={emailEnabled}
                   key={document.id}
                   officialFiles={officialFilesByDocument.get(document.id) ?? []}
-                  transmissionAvailable={transmissionAvailable}
                 />
               ))}
             </ul>
@@ -1064,9 +882,6 @@ export function DocumentsView({
           </div>
         )}
       </section>
-      {batches.length ? (
-        <BatchPanel batches={batches} canApprove={canApprove} csrfToken={csrfToken} />
-      ) : null}
     </>
   );
 }

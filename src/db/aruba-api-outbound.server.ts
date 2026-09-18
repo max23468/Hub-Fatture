@@ -221,8 +221,19 @@ export async function confirmArubaApiBatch(batchId: string, actor: ArubaOutbound
   });
 }
 
-export async function getDocumentArubaTransmission(documentId: string, effectiveMode: ArubaMode) {
+/**
+ * Elenca le trasmissioni dei documenti di una preparazione: la fattura e le note di
+ * credito collegate condividono lo stesso raggruppamento, quindi la preparazione resta
+ * l'unico punto in cui una trasmissione viene confermata.
+ */
+export async function listBillingCaseArubaTransmissions(
+  billingCaseId: string,
+  effectiveMode: ArubaMode,
+) {
   const result = await getPool().query<{
+    document_id: string;
+    kind: "INVOICE" | "CREDIT_NOTE";
+    fiscal_label: string;
     id: string;
     mode: ArubaMode;
     batch_status: string;
@@ -230,33 +241,42 @@ export async function getDocumentArubaTransmission(documentId: string, effective
     document_count: number;
     submission_status: string | null;
   }>(
-    `SELECT batches.id, batches.mode, batches.status AS batch_status, batches.transport,
+    `SELECT DISTINCT ON (documents.id)
+            documents.id AS document_id, documents.kind,
+            documents.series || ' ' || lpad(documents.fiscal_number::text, 4, '0') || '/' ||
+              right(documents.fiscal_year::text, 2) AS fiscal_label,
+            batches.id, batches.mode, batches.status AS batch_status, batches.transport,
             batches.document_count, submissions.status AS submission_status
-     FROM aruba_batch_documents AS batch_documents
+     FROM documents
+     JOIN aruba_batch_documents AS batch_documents
+       ON batch_documents.document_id = documents.id
      JOIN aruba_batches AS batches ON batches.id = batch_documents.batch_id
      LEFT JOIN aruba_submissions AS submissions
        ON submissions.batch_id = batches.id
       AND submissions.document_id = batch_documents.document_id
       AND submissions.attempt_number = batches.attempt_number
-     WHERE batch_documents.document_id = $1
-     ORDER BY batches.created_at DESC LIMIT 1`,
-    [documentId],
+     WHERE documents.billing_case_id = $1 AND documents.status = 'APPROVED'
+     ORDER BY documents.id, batches.created_at DESC`,
+    [billingCaseId],
   );
-  const row = result.rows[0];
-  if (!row) return null;
-  const awaitingConfirmation =
-    row.transport === "API" && row.batch_status === "AWAITING_CONFIRMATION";
-  return {
-    batchId: row.id,
-    // Un invio ancora PENDING non ha un esito proprio: vale lo stato del batch.
-    status:
-      row.submission_status && row.submission_status !== "PENDING"
-        ? row.submission_status
-        : row.batch_status,
-    documentCount: row.document_count,
-    awaitingConfirmation,
-    confirmable: awaitingConfirmation && arubaBatchTransmissionAllowed(row.mode, effectiveMode),
-  };
+  return result.rows.map((row) => {
+    const awaitingConfirmation =
+      row.transport === "API" && row.batch_status === "AWAITING_CONFIRMATION";
+    return {
+      documentId: row.document_id,
+      kind: row.kind,
+      fiscalLabel: row.fiscal_label,
+      batchId: row.id,
+      // Un invio ancora PENDING non ha un esito proprio: vale lo stato del batch.
+      status:
+        row.submission_status && row.submission_status !== "PENDING"
+          ? row.submission_status
+          : row.batch_status,
+      documentCount: row.document_count,
+      awaitingConfirmation,
+      confirmable: awaitingConfirmation && arubaBatchTransmissionAllowed(row.mode, effectiveMode),
+    };
+  });
 }
 
 export async function runArubaApiOutboundJob(

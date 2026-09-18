@@ -656,12 +656,17 @@ export async function approveCreditNote(
     };
     await writeAudit(client, { ...audit, action: "DOCUMENT_NUMBERED" });
     await writeAudit(client, { ...audit, action: "DOCUMENT_APPROVED" });
-    return { xml, label, batchId };
+    return { xml, label, batchId, billingCaseId: row.billing_case_id };
   });
+  const approved = {
+    fiscalNumber: committed.label,
+    batchId: committed.batchId,
+    billingCaseId: committed.billingCaseId,
+  };
   try {
     await materializeDocumentStorage(documentId, committed.xml);
-    return { fiscalNumber: committed.label, batchId: committed.batchId, storagePending: false };
+    return { ...approved, storagePending: false };
   } catch {
-    return { fiscalNumber: committed.label, batchId: committed.batchId, storagePending: true };
+    return { ...approved, storagePending: true };
   }
 }
