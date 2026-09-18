@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.8
+
+- Le fatture e le note di credito generate da Hub Fatture riproducono il file emesso dal pannello Aruba: riportano i dati dell’albo professionale del cedente e il numero civico separato dalla via, indicano l’unità di misura `NR` su ogni riga, usano il numero del documento come progressivo di invio, fissano la scadenza del pagamento a trenta giorni dalla data documento e adottano la stessa intestazione e codifica del file. Albo e civico compaiono dopo la riattivazione del profilo fiscale da un XML Aruba recente.
+- I documenti già approvati restano invariati: il file archiviato si rigenera identico con le regole della versione che li ha emessi.
+
 ## 1.4.7
 
 - Nella preparazione fattura, quando la fattura è approvabile o una trasmissione Aruba attende conferma, una barra ancorata al fondo dello schermo riporta documento e totale e porta con `Vai all’approvazione` o `Vai alla trasmissione` direttamente al pulsante, lasciando visibile sopra la conferma finale. La barra scompare quando il pulsante è a schermo e non approva né trasmette da sola.

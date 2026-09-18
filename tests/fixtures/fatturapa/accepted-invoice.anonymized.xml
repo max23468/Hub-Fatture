@@ -1,16 +1,16 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <FatturaElettronica xmlns="http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2" versione="FPR12">
   <FatturaElettronicaHeader xmlns="">
-    <DatiTrasmissione xmlns="">
+    <DatiTrasmissione>
       <IdTrasmittente>
         <IdPaese>IT</IdPaese>
         <IdCodice>01234567890</IdCodice>
       </IdTrasmittente>
-      <ProgressivoInvio>2600000001</ProgressivoInvio>
+      <ProgressivoInvio>1</ProgressivoInvio>
       <FormatoTrasmissione>FPR12</FormatoTrasmissione>
       <CodiceDestinatario>0000000</CodiceDestinatario>
     </DatiTrasmissione>
-    <CedentePrestatore xmlns="">
+    <CedentePrestatore>
       <DatiAnagrafici>
         <IdFiscaleIVA>
           <IdPaese>IT</IdPaese>
@@ -20,10 +20,15 @@
         <Anagrafica>
           <Denominazione>Venditore Esempio</Denominazione>
         </Anagrafica>
+        <AlboProfessionale>ALBO ESEMPIO</AlboProfessionale>
+        <ProvinciaAlbo>MI</ProvinciaAlbo>
+        <NumeroIscrizioneAlbo>123</NumeroIscrizioneAlbo>
+        <DataIscrizioneAlbo>2011-06-21</DataIscrizioneAlbo>
         <RegimeFiscale>RF14</RegimeFiscale>
       </DatiAnagrafici>
       <Sede>
-        <Indirizzo>Via Esempio 1</Indirizzo>
+        <Indirizzo>Via Esempio</Indirizzo>
+        <NumeroCivico>1</NumeroCivico>
         <CAP>20100</CAP>
         <Comune>Milano</Comune>
         <Provincia>MI</Provincia>
@@ -34,7 +39,7 @@
         <Email>contabilita@example.invalid</Email>
       </Contatti>
     </CedentePrestatore>
-    <CessionarioCommittente xmlns="">
+    <CessionarioCommittente>
       <DatiAnagrafici>
         <CodiceFiscale>RSSMRA80A01H501U</CodiceFiscale>
         <Anagrafica>
@@ -53,7 +58,7 @@
     </CessionarioCommittente>
   </FatturaElettronicaHeader>
   <FatturaElettronicaBody xmlns="">
-    <DatiGenerali xmlns="">
+    <DatiGenerali>
       <DatiGeneraliDocumento>
         <TipoDocumento>TD01</TipoDocumento>
         <Divisa>EUR</Divisa>
@@ -62,11 +67,12 @@
         <ImportoTotaleDocumento>123.45</ImportoTotaleDocumento>
       </DatiGeneraliDocumento>
     </DatiGenerali>
-    <DatiBeniServizi xmlns="">
+    <DatiBeniServizi>
       <DettaglioLinee>
         <NumeroLinea>1</NumeroLinea>
         <Descrizione>Vendita beni usati - Ordine Shopify #1001</Descrizione>
         <Quantita>1.00</Quantita>
+        <UnitaMisura>NR</UnitaMisura>
         <PrezzoUnitario>123.45</PrezzoUnitario>
         <PrezzoTotale>123.45</PrezzoTotale>
         <AliquotaIVA>0.00</AliquotaIVA>
@@ -80,11 +86,11 @@
         <RiferimentoNormativo>Regime del margine Art. 36 41/95</RiferimentoNormativo>
       </DatiRiepilogo>
     </DatiBeniServizi>
-    <DatiPagamento xmlns="">
+    <DatiPagamento>
       <CondizioniPagamento>TP02</CondizioniPagamento>
       <DettaglioPagamento>
         <ModalitaPagamento>MP08</ModalitaPagamento>
-        <DataScadenzaPagamento>2026-08-10</DataScadenzaPagamento>
+        <DataScadenzaPagamento>2026-09-09</DataScadenzaPagamento>
         <ImportoPagamento>123.45</ImportoPagamento>
       </DettaglioPagamento>
     </DatiPagamento>

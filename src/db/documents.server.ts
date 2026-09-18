@@ -8,6 +8,7 @@ import {
   documentInputSchema,
   fatturaPaText,
   fiscalProfileSchema,
+  FATTURA_GENERATOR_VERSION,
   generateFatturaXml,
   projectFatturaXml,
   recipientFromCustomerSnapshot,
@@ -972,7 +973,7 @@ export async function approveInvoice(
       );
       const approvedAt = new Date().toISOString();
       const snapshot = {
-        generatorVersion: 3,
+        generatorVersion: FATTURA_GENERATOR_VERSION,
         kind: input.kind,
         documentDate: input.documentDate,
         recipient: input.recipient,

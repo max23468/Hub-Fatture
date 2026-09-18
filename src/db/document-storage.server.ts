@@ -5,7 +5,12 @@ import path from "node:path";
 import type pg from "pg";
 
 import { getConfig } from "../config.server.ts";
-import { documentInputSchema, fiscalProfileSchema, generateFatturaXml } from "../documents.ts";
+import {
+  documentInputSchema,
+  fatturaGeneratorOptions,
+  fiscalProfileSchema,
+  generateFatturaXml,
+} from "../documents.ts";
 import { AppError } from "../errors.ts";
 import { getPool } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
@@ -71,11 +76,7 @@ function regenerateStoredXml(row: StoredDocumentRow): string {
     profile,
     input,
     { year: row.fiscal_year, number: row.fiscal_number },
-    {
-      legacyEuFirstTaxIdentifier:
-        snapshot.generatorVersion !== 2 && snapshot.generatorVersion !== 3,
-      uppercaseRecipient: snapshot.generatorVersion === 3,
-    },
+    fatturaGeneratorOptions(snapshot.generatorVersion),
   );
   if (
     Buffer.byteLength(xml) !== row.size_bytes ||

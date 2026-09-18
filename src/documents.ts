@@ -45,6 +45,7 @@ const taxIdentifier = z
 export const foreignCustomerFallbackTaxCode = "99999999999";
 const fiscalAddress = z.object({
   line1: text(60),
+  streetNumber: text(8).optional(),
   postalCode: z
     .string()
     .trim()
@@ -88,6 +89,19 @@ export const fiscalProfileSchema = z
       vatCode: text(28),
       taxCode: text(28).optional(),
       businessName: text(80),
+      professionalRegister: z
+        .object({
+          name: text(60),
+          province: z
+            .string()
+            .trim()
+            .toUpperCase()
+            .regex(/^[A-Z]{2}$/)
+            .optional(),
+          number: text(60).optional(),
+          registrationDate: postgresDateSchema.optional(),
+        })
+        .optional(),
       taxRegime: z.literal("RF14"),
       address: fiscalAddress,
       phone: text(12).optional(),
@@ -155,11 +169,18 @@ export function fiscalProfileFromAcceptedInvoiceXml(
       vatCode: xmlValue(supplierVat.IdCodice),
       taxCode: xmlOptional(supplierData.CodiceFiscale),
       businessName: xmlValue(supplierName.Denominazione),
+      professionalRegister: supplierData.AlboProfessionale
+        ? {
+            name: xmlValue(supplierData.AlboProfessionale),
+            province: xmlOptional(supplierData.ProvinciaAlbo),
+            number: xmlOptional(supplierData.NumeroIscrizioneAlbo),
+            registrationDate: xmlOptional(supplierData.DataIscrizioneAlbo),
+          }
+        : undefined,
       taxRegime: xmlValue(supplierData.RegimeFiscale),
       address: {
-        line1: [xmlValue(supplierAddress.Indirizzo), xmlOptional(supplierAddress.NumeroCivico)]
-          .filter(Boolean)
-          .join(" "),
+        line1: xmlValue(supplierAddress.Indirizzo),
+        streetNumber: xmlOptional(supplierAddress.NumeroCivico),
         postalCode: xmlValue(supplierAddress.CAP),
         city: xmlValue(supplierAddress.Comune),
         province: xmlOptional(supplierAddress.Provincia),
@@ -723,8 +744,54 @@ function amount(cents: number): string {
 
 type XmlNode = ReturnType<typeof create>;
 
-function add(parent: XmlNode, name: string, value: string | number): XmlNode {
-  return parent.ele(name).txt(String(value)).up();
+const FATTURAPA_NAMESPACE = "http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2";
+
+/** Generazione corrente del serializzatore, registrata nello snapshot immutabile. */
+export const FATTURA_GENERATOR_VERSION = 4;
+
+/** Opzioni che riproducono il file originale di un documento già approvato. */
+export function fatturaGeneratorOptions(version: unknown) {
+  const generation = typeof version === "number" ? version : 1;
+  return {
+    legacyEuFirstTaxIdentifier: generation < 2,
+    uppercaseRecipient: generation >= 3,
+    panelAlignedProfile: generation >= 4,
+  };
+}
+
+/**
+ * Sotto la radice la specifica FatturaPA non qualifica gli elementi. Il pannello Aruba dichiara il
+ * namespace vuoto solo su header e body: per ottenere lo stesso file va dichiarato su ogni elemento,
+ * altrimenti xmlbuilder2 eredita quello della radice e ripete `xmlns=""` sui figli diretti. Le
+ * generazioni precedenti ripetevano la dichiarazione e vanno riprodotte com'erano.
+ */
+type XmlChild = (parent: XmlNode, name: string) => XmlNode;
+
+const panelChild: XmlChild = (parent, name) => parent.ele("", name);
+const legacyChild: XmlChild = (parent, name) => parent.ele(name);
+
+function adder(child: XmlChild) {
+  return (parent: XmlNode, name: string, value: string | number): XmlNode =>
+    child(parent, name).txt(String(value)).up();
+}
+
+/**
+ * Le righe contano pezzi. Il pannello Aruba emette `NR` o nessuna unità secondo l’articolo della sua
+ * anagrafica prodotti, che l’applicazione non conosce: la quantità è sempre valorizzata, quindi
+ * l’unità lo è sempre.
+ */
+const UNIT_OF_MEASURE = "NR";
+
+/** Il pannello Aruba antepone il BOM al file fiscale e non chiude l’ultima riga. */
+const UTF8_BOM = String.fromCodePoint(0xfeff);
+
+/** Termine più frequente nell’anagrafica clienti Aruba, che l’applicazione non conosce. */
+const DAYS_TO_PAYMENT_DUE = 30;
+
+function paymentDueDate(documentDate: string): string {
+  const due = new Date(`${documentDate}T00:00:00Z`);
+  due.setUTCDate(due.getUTCDate() + DAYS_TO_PAYMENT_DUE);
+  return due.toISOString().slice(0, 10);
 }
 
 function taxId(recipient: DocumentInput["recipient"], type: string) {
@@ -740,7 +807,11 @@ export function generateFatturaXml(
   rawProfile: FiscalProfile,
   rawInput: DocumentInput,
   numbering: { year: number; number: number },
-  options: { legacyEuFirstTaxIdentifier?: boolean; uppercaseRecipient?: boolean } = {},
+  options: {
+    legacyEuFirstTaxIdentifier?: boolean;
+    uppercaseRecipient?: boolean;
+    panelAlignedProfile?: boolean;
+  } = {},
 ): string {
   const profile = fiscalProfileSchema.parse(rawProfile);
   const input = documentInputSchema.parse(rawInput);
@@ -753,20 +824,31 @@ export function generateFatturaXml(
   const documentType = input.kind === "INVOICE" ? "TD01" : "TD04";
   const paymentMethod = input.paymentMethod;
   const uppercaseRecipient = options.uppercaseRecipient ?? true;
+  const panelAligned = options.panelAlignedProfile ?? true;
   const recipientText = uppercaseRecipient ? fatturaPaUpperText : fatturaPaText;
-  const root = create({ version: "1.0", encoding: "UTF-8" }).ele("FatturaElettronica", {
-    xmlns: "http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2",
-    versione: "FPR12",
-  });
-  const header = root.ele("FatturaElettronicaHeader", { xmlns: "" });
-  const transmission = header.ele("DatiTrasmissione");
-  const transmitter = transmission.ele("IdTrasmittente");
+  const node = panelAligned ? panelChild : legacyChild;
+  const add = adder(node);
+  const root = panelAligned
+    ? create({ version: "1.0", encoding: "utf-8" })
+        .ele(FATTURAPA_NAMESPACE, "FatturaElettronica")
+        .att("versione", "FPR12")
+    : create({ version: "1.0", encoding: "UTF-8" }).ele("FatturaElettronica", {
+        xmlns: FATTURAPA_NAMESPACE,
+        versione: "FPR12",
+      });
+  const header = panelAligned
+    ? node(root, "FatturaElettronicaHeader")
+    : root.ele("FatturaElettronicaHeader", { xmlns: "" });
+  const transmission = node(header, "DatiTrasmissione");
+  const transmitter = node(transmission, "IdTrasmittente");
   add(transmitter, "IdPaese", profile.transmitter.countryCode);
   add(transmitter, "IdCodice", profile.transmitter.taxCode);
   add(
     transmission,
     "ProgressivoInvio",
-    `${String(numbering.year).slice(-2)}${String(numbering.number).padStart(8, "0")}`,
+    panelAligned
+      ? numbering.number
+      : `${String(numbering.year).slice(-2)}${String(numbering.number).padStart(8, "0")}`,
   );
   add(transmission, "FormatoTrasmissione", "FPR12");
   add(transmission, "CodiceDestinatario", code);
@@ -774,23 +856,31 @@ export function generateFatturaXml(
     add(transmission, "PECDestinatario", input.recipient.certifiedEmail);
   }
 
-  const supplier = header.ele("CedentePrestatore");
-  const supplierData = supplier.ele("DatiAnagrafici");
-  const supplierVat = supplierData.ele("IdFiscaleIVA");
+  const supplier = node(header, "CedentePrestatore");
+  const supplierData = node(supplier, "DatiAnagrafici");
+  const supplierVat = node(supplierData, "IdFiscaleIVA");
   add(supplierVat, "IdPaese", profile.seller.vatCountryCode);
   add(supplierVat, "IdCodice", profile.seller.vatCode);
   if (profile.seller.taxCode) add(supplierData, "CodiceFiscale", profile.seller.taxCode);
-  add(supplierData.ele("Anagrafica"), "Denominazione", profile.seller.businessName);
+  add(node(supplierData, "Anagrafica"), "Denominazione", profile.seller.businessName);
+  const register = profile.seller.professionalRegister;
+  if (register) {
+    add(supplierData, "AlboProfessionale", fatturaPaText(register.name, 60));
+    if (register.province) add(supplierData, "ProvinciaAlbo", register.province);
+    if (register.number) add(supplierData, "NumeroIscrizioneAlbo", register.number);
+    if (register.registrationDate)
+      add(supplierData, "DataIscrizioneAlbo", register.registrationDate);
+  }
   add(supplierData, "RegimeFiscale", profile.seller.taxRegime);
-  addAddress(supplier.ele("Sede"), profile.seller.address);
+  addAddress(add, node(supplier, "Sede"), profile.seller.address);
   if (profile.seller.phone || profile.seller.email) {
-    const contacts = supplier.ele("Contatti");
+    const contacts = node(supplier, "Contatti");
     if (profile.seller.phone) add(contacts, "Telefono", profile.seller.phone);
     if (profile.seller.email) add(contacts, "Email", profile.seller.email);
   }
 
-  const customer = header.ele("CessionarioCommittente");
-  const customerData = customer.ele("DatiAnagrafici");
+  const customer = node(header, "CessionarioCommittente");
+  const customerData = node(customer, "DatiAnagrafici");
   const vat =
     taxId(input.recipient, "PARTITA_IVA") ??
     (isForeignCustomerKind(input.recipient.kind)
@@ -805,13 +895,13 @@ export function generateFatturaXml(
           }
       : undefined);
   if (vat) {
-    const customerVat = customerData.ele("IdFiscaleIVA");
+    const customerVat = node(customerData, "IdFiscaleIVA");
     add(customerVat, "IdPaese", vat.countryCode ?? input.recipient.address.countryCode);
     add(customerVat, "IdCodice", vat.value);
   }
   const fiscalCode = taxId(input.recipient, "CODICE_FISCALE");
   if (fiscalCode) add(customerData, "CodiceFiscale", fiscalCode.value);
-  const customerName = customerData.ele("Anagrafica");
+  const customerName = node(customerData, "Anagrafica");
   if (input.recipient.businessName)
     add(customerName, "Denominazione", recipientText(input.recipient.businessName, 80));
   else if (input.recipient.firstName && input.recipient.lastName) {
@@ -820,11 +910,13 @@ export function generateFatturaXml(
   } else {
     add(customerName, "Denominazione", recipientText(input.recipient.displayName!, 80));
   }
-  addAddress(customer.ele("Sede"), input.recipient.address, uppercaseRecipient);
+  addAddress(add, node(customer, "Sede"), input.recipient.address, uppercaseRecipient);
 
-  const body = root.ele("FatturaElettronicaBody", { xmlns: "" });
-  const general = body.ele("DatiGenerali");
-  const generalDocument = general.ele("DatiGeneraliDocumento");
+  const body = panelAligned
+    ? node(root, "FatturaElettronicaBody")
+    : root.ele("FatturaElettronicaBody", { xmlns: "" });
+  const general = node(body, "DatiGenerali");
+  const generalDocument = node(general, "DatiGeneraliDocumento");
   add(generalDocument, "TipoDocumento", documentType);
   add(generalDocument, "Divisa", "EUR");
   add(generalDocument, "Data", input.documentDate);
@@ -837,39 +929,46 @@ export function generateFatturaXml(
   if (input.causale) add(generalDocument, "Causale", fatturaPaText(input.causale, 200));
   if (input.notes) add(generalDocument, "Causale", fatturaPaText(input.notes, 200));
   if (input.kind === "CREDIT_NOTE" && input.relatedInvoice) {
-    const related = general.ele("DatiFattureCollegate");
+    const related = node(general, "DatiFattureCollegate");
     add(related, "IdDocumento", input.relatedInvoice.number);
     add(related, "Data", input.relatedInvoice.date);
   }
 
-  const goods = body.ele("DatiBeniServizi");
+  const goods = node(body, "DatiBeniServizi");
   input.lines.forEach((line, index) => {
-    const detail = goods.ele("DettaglioLinee");
+    const detail = node(goods, "DettaglioLinee");
     add(detail, "NumeroLinea", index + 1);
     add(detail, "Descrizione", fatturaPaText(line.description, 1000));
     add(detail, "Quantita", `${line.quantity}.00`);
+    if (panelAligned) add(detail, "UnitaMisura", UNIT_OF_MEASURE);
     add(detail, "PrezzoUnitario", amount(line.unitAmount));
     add(detail, "PrezzoTotale", amount(line.quantity * line.unitAmount));
     add(detail, "AliquotaIVA", "0.00");
     add(detail, "Natura", profile.taxNature);
   });
-  const summary = goods.ele("DatiRiepilogo");
+  const summary = node(goods, "DatiRiepilogo");
   add(summary, "AliquotaIVA", "0.00");
   add(summary, "Natura", profile.taxNature);
   add(summary, "ImponibileImporto", amount(total));
   add(summary, "Imposta", "0.00");
   add(summary, "RiferimentoNormativo", profile.legalReference);
 
-  const payment = body.ele("DatiPagamento");
+  const payment = node(body, "DatiPagamento");
   add(payment, "CondizioniPagamento", profile.payment.condition);
-  const paymentDetail = payment.ele("DettaglioPagamento");
+  const paymentDetail = node(payment, "DettaglioPagamento");
   add(paymentDetail, "ModalitaPagamento", paymentMethod);
-  add(paymentDetail, "DataScadenzaPagamento", input.documentDate);
+  add(
+    paymentDetail,
+    "DataScadenzaPagamento",
+    panelAligned ? paymentDueDate(input.documentDate) : input.documentDate,
+  );
   add(paymentDetail, "ImportoPagamento", amount(total));
-  return `${root.end({ prettyPrint: true })}\n`;
+  const serialized = root.end({ prettyPrint: true });
+  return panelAligned ? `${UTF8_BOM}${serialized}` : `${serialized}\n`;
 }
 
 function addAddress(
+  add: ReturnType<typeof adder>,
   parent: XmlNode,
   value: z.infer<typeof fiscalAddress> | z.infer<typeof recipientAddress>,
   uppercase = false,
@@ -888,8 +987,14 @@ function addAddress(
       ? fatturaPaUpperAddress(address.line1, address.line2)
       : fatturaPaAddress(address.line1, address.line2),
   );
-  if (uppercase && address.streetNumber) {
-    add(parent, "NumeroCivico", fatturaPaUpperText(address.streetNumber, 8));
+  if (address.streetNumber) {
+    add(
+      parent,
+      "NumeroCivico",
+      uppercase
+        ? fatturaPaUpperText(address.streetNumber, 8)
+        : fatturaPaText(address.streetNumber, 8),
+    );
   }
   add(parent, "CAP", value.countryCode === "IT" ? value.postalCode : "00000");
   add(parent, "Comune", fatturaPaText(value.city, 60));

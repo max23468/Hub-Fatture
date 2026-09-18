@@ -1687,7 +1687,8 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     /^attachment; filename="fattura-\d+\.xml"$/,
   );
   expect(xmlDownload.headers()["content-type"]).toContain("application/xml");
-  expect((await xmlDownload.body()).subarray(0, 5).toString()).toBe("<?xml");
+  // Il file fiscale scaricato conserva il BOM UTF-8 che il pannello Aruba antepone.
+  expect((await xmlDownload.body()).subarray(0, 8).toString("hex")).toBe("efbbbf3c3f786d6c");
 
   await expect(
     page
