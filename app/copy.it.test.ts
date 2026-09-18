@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { copy, documentTransmissionStatusLabel, errorCodeLabel } from "./copy.it.ts";
+import {
+  copy,
+  documentStateTone,
+  documentTransmissionStatusLabel,
+  errorCodeLabel,
+} from "./copy.it.ts";
 
 test("le attività dei canali non espongono codici interni", () => {
   assert.equal(copy.activity.failedJobTitle("shopify_sync_orders"), "Aggiornamento ordini Shopify");
@@ -79,4 +84,12 @@ test("la riga di Documenti traduce anche gli esiti SdI", () => {
   }
   assert.equal(documentTransmissionStatusLabel("NOT_DELIVERED"), "Non consegnato");
   assert.equal(documentTransmissionStatusLabel("SUBMITTED"), "Inviato, esito da verificare");
+});
+
+test("il colore dello stato segue l’esito SdI dei documenti trasmessi", () => {
+  assert.equal(documentStateTone("APPROVED", "DELIVERED"), "success");
+  assert.equal(documentStateTone("APPROVED", "NOT_DELIVERED"), "success");
+  assert.equal(documentStateTone("APPROVED", "REJECTED"), "warning");
+  assert.equal(documentStateTone("APPROVED", "SDI_PROCESSING"), "accent");
+  assert.equal(documentStateTone("DRAFT", null), "neutral");
 });

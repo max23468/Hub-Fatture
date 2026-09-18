@@ -1237,6 +1237,24 @@ export function documentTransmissionStatusLabel(status: string) {
   );
 }
 
+const documentWarningStatuses = new Set([
+  "VALIDATION_FAILED",
+  "RECONCILIATION_REQUIRED",
+  "DRY_RUN_FAILED",
+  "SEND_FAILED",
+  "REJECTED",
+  "UNKNOWN",
+  "UNKNOWN_REMOTE_STATE",
+]);
+// Consegna e mancata consegna chiudono la trasmissione con esito SdI valido.
+const documentSuccessStatuses = new Set(["RECONCILED", "DELIVERED", "NOT_DELIVERED"]);
+
+export function documentStateTone(status: string, arubaStatus: string | null) {
+  if (arubaStatus && documentWarningStatuses.has(arubaStatus)) return "warning";
+  if (arubaStatus && documentSuccessStatuses.has(arubaStatus)) return "success";
+  return status === "APPROVED" ? "accent" : "neutral";
+}
+
 export const orderStatusLabels: Record<string, string> = {
   WAITING_FOR_TRIGGER: "In attesa di pagamento o spedizione",
   ELIGIBLE: "Da preparare",

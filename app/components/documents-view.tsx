@@ -16,7 +16,7 @@ import type {
   listDocuments,
 } from "../../src/db/document-archive.server.ts";
 import type { listEmailDeliveries } from "../../src/db/email.server.ts";
-import { copy, documentTransmissionStatusLabel } from "../copy.it";
+import { copy, documentStateTone, documentTransmissionStatusLabel } from "../copy.it";
 import { date, dateTime, euros } from "../format";
 import { Pager } from "./pager";
 import { SortControlLink } from "./sortable-table";
@@ -292,13 +292,8 @@ function transmissionLabel(document: DocumentRowData) {
 }
 
 function stateTone(document: DocumentRowData) {
-  if (["VALIDATION_FAILED", "RECONCILIATION_REQUIRED"].includes(document.aruba_status ?? "")) {
-    return "warning";
-  }
-  if (document.aruba_status === "RECONCILED" || document.origin === "ARUBA_HISTORY") {
-    return "success";
-  }
-  return document.status === "APPROVED" ? "accent" : "neutral";
+  if (document.origin === "ARUBA_HISTORY") return "success";
+  return documentStateTone(document.status, document.aruba_status);
 }
 
 function DocumentRowGrid({
