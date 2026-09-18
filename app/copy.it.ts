@@ -1227,6 +1227,16 @@ export const copy = {
   },
 } as const;
 
+// La riga di Documenti mostra sia gli stati di preparazione sia gli esiti Aruba/SdI.
+export function documentTransmissionStatusLabel(status: string) {
+  return (
+    copy.documents.transmissionState[status] ??
+    copy.documents.arubaBatchStatus[status] ??
+    copy.documents.arubaDocumentStatus[status] ??
+    copy.common.unavailable
+  );
+}
+
 export const orderStatusLabels: Record<string, string> = {
   WAITING_FOR_TRIGGER: "In attesa di pagamento o spedizione",
   ELIGIBLE: "Da preparare",

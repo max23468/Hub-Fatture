@@ -16,7 +16,7 @@ import type {
   listDocuments,
 } from "../../src/db/document-archive.server.ts";
 import type { listEmailDeliveries } from "../../src/db/email.server.ts";
-import { copy } from "../copy.it";
+import { copy, documentTransmissionStatusLabel } from "../copy.it";
 import { date, dateTime, euros } from "../format";
 import { Pager } from "./pager";
 import { SortControlLink } from "./sortable-table";
@@ -288,11 +288,7 @@ function transmissionLabel(document: DocumentRowData) {
   if (document.aruba_batch_status === "DOCUMENT_ONLY") {
     return copy.documents.arubaBatchStatus.DOCUMENT_ONLY!;
   }
-  return (
-    copy.documents.transmissionState[document.aruba_status] ??
-    copy.documents.arubaBatchStatus[document.aruba_status] ??
-    copy.common.unavailable
-  );
+  return documentTransmissionStatusLabel(document.aruba_status);
 }
 
 function stateTone(document: DocumentRowData) {
