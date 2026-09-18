@@ -4,6 +4,7 @@ import type { Route } from "./+types/billing-case-detail";
 import { actionResult } from "../action";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { confirmArubaApiBatch } from "../../src/db/aruba-api-outbound.server.ts";
+import { prefetchArubaInventory } from "../../src/db/aruba-inventory-health.server.ts";
 import {
   approveInvoice,
   getInvoiceProjection,
@@ -170,6 +171,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     listReconciledDocumentsForSourceCase(params.caseId),
   ]);
   if (!billingCase) throw new Response("Preparazione non trovata", { status: 404 });
+  if (
+    projection &&
+    "arubaInventory" in projection &&
+    projection.arubaInventory &&
+    !projection.approved
+  ) {
+    await prefetchArubaInventory(
+      { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
+      projection.arubaInventory,
+    );
+  }
   const operationalProjection = await getOpenBillingCaseProjection(params.caseId);
   return {
     username: user.username,

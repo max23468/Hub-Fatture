@@ -17,6 +17,17 @@ export function InventoryApprovalForm({
   const refreshing = fetcher.data?.code === "ARUBA_INVENTORY_REFRESHING";
   const waiting = Boolean(submission && refreshing && !expired);
   const busy = fetcher.state !== "idle" || waiting;
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!busy || !submission) return;
+    const startedAt = submission.expiresAt - 120_000;
+    const timer = window.setInterval(
+      () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000)),
+      1_000,
+    );
+    return () => window.clearInterval(timer);
+  }, [busy, submission]);
 
   useEffect(() => {
     if (!submission || !refreshing || expired || fetcher.state !== "idle") return;
@@ -42,6 +53,7 @@ export function InventoryApprovalForm({
           return;
         }
         const submitter = (event.nativeEvent as SubmitEvent).submitter;
+        setElapsedSeconds(0);
         setSubmission({
           form: new FormData(event.currentTarget, submitter),
           expiresAt: Date.now() + 120_000,
@@ -59,6 +71,9 @@ export function InventoryApprovalForm({
       {busy ? (
         <p className="notice" role="status">
           {copy.document.inventoryChecking}
+          {elapsedSeconds >= 5
+            ? ` ${copy.document.inventoryCheckingElapsed(elapsedSeconds)}`
+            : null}
         </p>
       ) : null}
       {expired ? (

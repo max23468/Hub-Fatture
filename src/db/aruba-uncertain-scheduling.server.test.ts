@@ -75,12 +75,16 @@ test("uno stato Aruba incerto conclusivo pianifica una rilettura mirata", async 
       "0",
       "l’inventario periodico non riparte prima dei dieci minuti",
     );
-    await getPool().query(`UPDATE jobs SET completed_at = now() - interval '11 minutes'
-      WHERE type = 'aruba_sync_inventory'`);
+    await getPool().query(`INSERT INTO jobs (type, status, payload_json, run_at, completed_at)
+      VALUES ('aruba_sync_inventory', 'COMPLETED', '{"purpose":"APPROVAL"}', now(),
+        now() - interval '3 minutes');
+      UPDATE jobs SET completed_at = now() - interval '11 minutes'
+      WHERE type = 'aruba_sync_inventory' AND payload_json ->> 'purpose' IS NULL`);
     await scheduleDueSyncs();
     assert.deepEqual(
       (await getPool().query("SELECT type FROM jobs WHERE status = 'PENDING'")).rows,
       [{ type: "aruba_sync_inventory" }],
+      "un giro rapido del gate non rinvia l’incrementale periodico",
     );
     await getPool().query("DELETE FROM jobs WHERE status = 'PENDING'");
     await getPool().query(
@@ -105,6 +109,26 @@ test("uno stato Aruba incerto conclusivo pianifica una rilettura mirata", async 
     assert.deepEqual(
       (await getPool().query("SELECT type FROM jobs WHERE status = 'PENDING'")).rows,
       [{ type: "aruba_refresh_nonterminal" }],
+    );
+    await getPool().query(
+      `DELETE FROM jobs WHERE status = 'PENDING';
+       UPDATE jobs SET completed_at = now() - interval '16 minutes';
+       UPDATE connections SET last_full_sync_at = now() - interval '31 days'`,
+    );
+    await scheduleDueSyncs();
+    const romeHour = Number(
+      new Intl.DateTimeFormat("en-GB", {
+        hour: "2-digit",
+        hourCycle: "h23",
+        timeZone: "Europe/Rome",
+      }).format(new Date()),
+    );
+    const night = romeHour >= 22 || romeHour < 6;
+    assert.equal(
+      (await getPool().query("SELECT count(*) FROM jobs WHERE type = 'aruba_full_inventory'"))
+        .rows[0].count,
+      night ? "1" : "0",
+      "la scansione completa mensile parte soltanto di notte",
     );
   } finally {
     await closePool();

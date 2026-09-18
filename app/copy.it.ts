@@ -668,9 +668,10 @@ export const copy = {
         "L’inventario Aruba richiede un intervento. Puoi preparare le fatture, ma l’approvazione resta sospesa.",
     },
     inventoryChecking:
-      "Verifica Aruba prima dell’approvazione. Attendi: può richiedere circa un minuto.",
+      "Verifica Aruba prima dell’approvazione. Attendi: di solito bastano pochi secondi, al massimo circa un minuto.",
+    inventoryCheckingElapsed: (seconds: number) => `In attesa da ${seconds} s.`,
     inventoryWaitExpired:
-      "La verifica richiede più tempo. L’attesa automatica è terminata: controlla lo stato Aruba e riprova.",
+      "La verifica richiede più tempo del previsto. Puoi riprovare subito con lo stesso pulsante: i dati confermati vengono ricontrollati.",
     arubaInventoryWarningHelp:
       "I controlli specifici di questa preparazione restano necessari prima dell’approvazione.",
     arubaInventoryBlockingHelp:

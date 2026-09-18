@@ -1362,6 +1362,28 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
     await getPool().query(`UPDATE aruba_document_matches SET status = 'UNKNOWN_REMOTE_STATE'
       WHERE remote_document_id IN (SELECT id FROM aruba_remote_documents WHERE provider_group_id = 'cached-terminal')`);
     assert.equal(await runCachedInventory(), 2, "uno stato incerto non usa il riuso dei terminali");
+    const previousWindow = await getPool().query<{ window_end: Date }>(
+      `SELECT window_end FROM aruba_sync_runs WHERE status = 'COMPLETED'
+         AND kind IN ('BACKFILL', 'INCREMENTAL', 'FULL')
+       ORDER BY completed_at DESC LIMIT 1`,
+    );
+    await getPool().query(`INSERT INTO jobs (type, payload_json)
+      VALUES ('aruba_sync_inventory', '{"purpose":"APPROVAL"}')`);
+    const approvalJob = await jobs.claimJob("aruba-approval-inventory-worker");
+    const approvalResult = await api.runArubaApiInboundJob(approvalJob!, {
+      rateDelayMs: 0,
+      now: new Date(Date.parse("2026-07-01T07:00:00.000Z") + cacheRunOrdinal++ * 60_000),
+    });
+    assert.equal(await jobs.completeJob(approvalJob!, approvalResult), true);
+    const approvalRun = await getPool().query<{ window_start: Date }>(
+      "SELECT window_start FROM aruba_sync_runs WHERE id = $1",
+      [approvalResult.runId],
+    );
+    assert.equal(
+      approvalRun.rows[0]!.window_start.getTime(),
+      previousWindow.rows[0]!.window_end.getTime() - 60 * 60_000,
+      "il giro rapido del gate rilegge soltanto l’ultima ora prima del giro precedente",
+    );
     const { getArubaInventoryHealth } = await import("./aruba-inventory-health.server.ts");
     const beforeTargeted = await getArubaInventoryHealth();
     await getPool().query(`INSERT INTO aruba_sync_runs

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.1
+
+- Approvare o trasmettere una fattura non costringe più ad attendere una lunga sincronizzazione Aruba. La verifica chiesta al momento della conferma rilegge soltanto i documenti caricati su Aruba dall’ultima sincronizzazione, invece dell’ultima settimana, e parte già all’apertura della preparazione o dell’elenco da fatturare quando l’inventario ha più di tre minuti.
+- Una sincronizzazione Aruba in corso non sospende più approvazione e trasmissione se l’ultimo inventario completo ha al massimo cinque minuti e non presenta errori, conflitti o stati incerti; ogni conflitto rilevato durante la sincronizzazione blocca subito.
+- La scansione completa mensile dell’account Aruba parte soltanto fra le 22 e le 6, così non occupa la coda durante l’orario di lavoro.
+- Durante la verifica il modulo di approvazione indica da quanti secondi è in attesa e, se l’attesa automatica termina, spiega che si può riprovare subito con lo stesso pulsante.
+
 ## 1.5.0
 
 - Le trasmissioni Aruba si confermano soltanto dalla preparazione fattura. La scheda `Trasmissione Aruba` elenca la fattura e le note di credito collegate, ciascuna con il proprio stato e il proprio `Trasmetti ora`: le note di credito in attesa di conferma, prima confermabili solo da Documenti, hanno ora un punto di invio nella loro preparazione, a cui porta anche l’approvazione della nota.

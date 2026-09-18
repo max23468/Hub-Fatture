@@ -192,9 +192,10 @@ Finché il backfill non è completo:
 
 ### 6.3 Regime ordinario
 
-- dopo dieci minuti dal giro precedente: finestre incrementali con sovrapposizione di sicurezza; la conferma dell’approvazione e l’invio richiedono una verifica su richiesta quando l’inventario supera i cinque minuti, riusando il giro in corso;
+- dopo dieci minuti dal giro periodico precedente: finestre incrementali con sovrapposizione di sicurezza di sette giorni;
+- su richiesta del gate: la conferma dell’approvazione e l’invio richiedono una verifica quando l’inventario supera i cinque minuti, riusando il giro in corso; il giro rapido rilegge i caricamenti dall’ora precedente il giro completato più recente, viene anticipato all’apertura della preparazione o dell’elenco da fatturare oltre i tre minuti e non rinvia l’incrementale periodico;
 - ogni 15 minuti, alternata all’inventario: rilettura mirata dei documenti non terminali e delle notifiche correlate;
-- una volta al mese: scansione completa di controllo;
+- una volta al mese, fra le 22 e le 6 ora italiana: scansione completa di controllo; la prima scansione completa dopo il backfill parte subito;
 - su richiesta: `Sincronizza ora`, senza avviare un secondo giro concorrente;
 - nuovo stream, cursore assente, conteggio incoerente o cambio di contratto: scansione completa.
 

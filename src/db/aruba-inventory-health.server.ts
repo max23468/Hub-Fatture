@@ -264,6 +264,24 @@ export async function ensureFreshArubaInventory(actor?: {
   if (state === "BLOCKED") {
     throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
   }
-  await requestArubaApiSync(actor);
+  await requestArubaApiSync(actor, "APPROVAL");
   throw new AppError("ARUBA_INVENTORY_REFRESHING", 409);
+}
+
+/**
+ * Anticipa il giro rapido quando chi può approvare apre una preparazione o l'elenco da
+ * fatturare: la conferma trova così un inventario già fresco. Il gate resta invariato.
+ */
+export async function prefetchArubaInventory(
+  actor: { id: number; canApprove: boolean; requestId: string },
+  health: ArubaInventoryHealth,
+) {
+  if (!actor.canApprove || health.activeSession) return;
+  if (arubaInventoryApprovalState(health) === "BLOCKED") return;
+  if ((health.ageMinutes ?? Infinity) * 60_000 <= ARUBA_API_POLICY.approvalPrefetchAgeMs) return;
+  try {
+    await requestArubaApiSync(actor, "APPROVAL");
+  } catch (error) {
+    if (!(error instanceof AppError) || error.code !== "PROVIDER_NOT_CONFIGURED") throw error;
+  }
 }
