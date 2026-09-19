@@ -21,6 +21,7 @@ import {
   standardInvoiceApprovalCandidateSql,
   unpreparedPendingPaymentSql,
 } from "./billing-case-sql.server.ts";
+import { arubaSubmissionTransmissionAbsenceSql } from "./aruba-transmission-absence-sql.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
 type SortDirection = "asc" | "desc";
@@ -275,7 +276,10 @@ export async function getOrder(id: string) {
                 'fiscal_year', order_documents.fiscal_year,
                 'fiscal_number', order_documents.fiscal_number,
                 'aruba_status', (
-                  SELECT coalesce(submissions.status, batches.status)
+                  SELECT CASE
+                    WHEN ${arubaSubmissionTransmissionAbsenceSql("submissions")}
+                      THEN 'NOT_TRANSMITTED'
+                    ELSE coalesce(submissions.status, batches.status) END
                   FROM aruba_batch_documents AS batch_documents
                   JOIN aruba_batches AS batches ON batches.id = batch_documents.batch_id
                   LEFT JOIN aruba_submissions AS submissions

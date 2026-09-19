@@ -3,45 +3,19 @@ import { z } from "zod";
 import type { ArubaRemoteStatus } from "../aruba-inbound.ts";
 import { AppError } from "../errors.ts";
 import { writeAudit } from "./audit.server.ts";
+import { requeueIneffectiveInvoice } from "./rejected-invoice-requeue.server.ts";
 import { withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
+import {
+  absenceEvidenceSql,
+  arubaTransmissionAbsenceSql,
+} from "./aruba-transmission-absence-sql.server.ts";
 import {
   arubaAccountReference,
   arubaRuntimeEnvironment,
   lockArubaInventory,
   type ArubaReadActor,
 } from "./aruba-inventory-context.server.ts";
-
-const WAITING_STATUSES = "('SUBMITTED', 'SDI_PROCESSING')";
-
-function absenceEvidenceSql(remote: string) {
-  return `${remote}.remote_status IN ${WAITING_STATUSES}
-    AND coalesce(${remote}.provider_sdi_id, '0') = '0'
-    AND NOT EXISTS (SELECT 1 FROM aruba_files AS absence_files
-      WHERE absence_files.remote_document_id = ${remote}.id
-        AND absence_files.kind = 'SDI_NOTIFICATION')`;
-}
-
-/**
- * Chiusura del titolare ancora valida. Decade da sola se Aruba cambia metadati o stato, assegna
- * un ID SdI o produce una notifica: controlli e monitoraggio riprendono senza nuove decisioni.
- */
-export function arubaTransmissionAbsenceSql(remote: string, matches: string) {
-  return `(${matches}.signals_json @> '{"identityCollisionExcluded":true}'
-    AND (${matches}.signals_json -> 'transmissionAbsence' ->> 'metadataDigest')
-      IS NOT DISTINCT FROM ${remote}.metadata_digest
-    AND ${absenceEvidenceSql(remote)})`;
-}
-
-/** Invio Hub il cui documento Aruba è stato chiuso come mai trasmesso. */
-export function arubaSubmissionTransmissionAbsenceSql(submissions: string) {
-  return `EXISTS (SELECT 1 FROM aruba_remote_documents AS absence_remote
-    JOIN aruba_document_matches AS absence_matches
-      ON absence_matches.remote_document_id = absence_remote.id
-    WHERE absence_remote.provider_group_id = ${submissions}.remote_id
-      AND absence_remote.environment = ${submissions}.environment
-      AND ${arubaTransmissionAbsenceSql("absence_remote", "absence_matches")})`;
-}
 
 /**
  * Documento escluso per errore che il titolare può dichiarare mai trasmesso a SdI. SdI ha cinque
@@ -74,7 +48,7 @@ export async function confirmArubaTransmissionAbsence(
   actor: ArubaReadActor,
 ) {
   if (!actor.canApprove) throw new AppError("ARUBA_OPERATION_FORBIDDEN", 403);
-  const reason = z.string().trim().min(20).max(500).safeParse(rawReason);
+  const reason = z.string().trim().min(1).max(500).safeParse(rawReason);
   if (
     !isDatabaseId(remoteDocumentId) ||
     !/^[0-9a-f]{64}$/.test(metadataDigest) ||
@@ -119,6 +93,17 @@ export async function confirmArubaTransmissionAbsence(
        WHERE id = $1 AND state <> 'RESOLVED'`,
       [`ARUBA_REMOTE:${remoteDocumentId}`, reason.data],
     );
+    // Una fattura Hub mai trasmessa non è emessa: i suoi ordini tornano da fatturare.
+    for (const submissionId of current.submission_ids) {
+      // Una sola transazione serializza il raggruppamento, come nello scarto.
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
+      await requeueIneffectiveInvoice(
+        client,
+        submissionId,
+        { requestId: actor.requestId },
+        "INVOICE_NOT_TRANSMITTED_REQUEUED",
+      );
+    }
     await writeAudit(client, {
       actorType: "ADMIN",
       actorId: String(actor.id),
