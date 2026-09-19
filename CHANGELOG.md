@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.2
+
+- Le preparazioni eBay aperte vengono rilette anche quando il nome completo era già visibile ma nome e cognome strutturati erano rimasti vuoti; i controlli di identità risolvibili dai dati della sorgente si chiudono automaticamente.
+- Le descrizioni delle righe eliminano ripetizioni bilingui come `CINA CHINA` e separano con virgole gli elementi distinti al posto della barra.
+
 ## 1.6.1
 
 - Le righe delle fatture e delle note di credito descrivono la cessione con una formula fiscale generica e conservano il riferimento all’ordine, senza riportare nomi, varianti o quantità dei prodotti. Le bozze generate in precedenza con la descrizione automatica dettagliata vengono aggiornate; le descrizioni inserite liberamente restano invariate.
