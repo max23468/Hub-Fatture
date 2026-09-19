@@ -290,7 +290,26 @@ test(
         cases.map((billingCase) => save(billingCase.id)),
       );
       assert.equal(secondProjection.lines.length, 1);
+      assert.equal(secondProjection.lines[0]!.description, "Orologio - Ordine Shopify #DOC-2");
       assert.equal(secondProjection.lines[0]!.unitAmount % 2, 0);
+      await database.getPool().query(
+        `UPDATE document_lines SET description = 'Vendita beni usati - Ordine Shopify #DOC-2'
+         WHERE document_id = (
+           SELECT id FROM documents WHERE billing_case_id = $1 AND kind = 'INVOICE'
+         )`,
+        [cases[1]!.id],
+      );
+      const recalculatedLegacyProjection = await documents.getInvoiceProjection(cases[1]!.id);
+      assert.ok(
+        recalculatedLegacyProjection &&
+          !recalculatedLegacyProjection.profileMissing &&
+          "lines" in recalculatedLegacyProjection,
+      );
+      assert.equal(
+        recalculatedLegacyProjection.lines[0]!.description,
+        "Orologio - Ordine Shopify #DOC-2",
+      );
+      secondProjection = recalculatedLegacyProjection;
       await documents.saveInvoiceDraft(
         cases[1]!.id,
         {

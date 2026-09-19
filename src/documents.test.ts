@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import {
+  creditDescription,
+  generalizedProductDescription,
+  invoiceDescription,
+  isLegacyInvoiceDescription,
+} from "./invoice-description.ts";
+
 import profileFixture from "../tests/fixtures/fatturapa/profile.mock.json" with { type: "json" };
 
 import {
@@ -574,4 +581,49 @@ test("la bozza controlla gli identificativi e proietta pagamento, causale e note
   assert.match(xml, /<ModalitaPagamento>MP05<\/ModalitaPagamento>/);
   assert.match(xml, /<Causale>Cessione beni usati<\/Causale>/);
   assert.match(xml, /<Causale>Incasso registrato manualmente<\/Causale>/);
+});
+test("le descrizioni fiscali generalizzano i titoli come le fatture manuali Aruba", () => {
+  assert.equal(
+    generalizedProductDescription([
+      "NL* ITALIA Repubblica 1 LIRA SIMBOLO 1956 FDC da ROTOLINO",
+      "NL* Italia Repubblica 2 LIRE TEMA 1948 QFDC/FDC Perizia Sintetica",
+    ]),
+    "Italia Repubblica Monete Commemorative in Lire",
+  );
+  assert.equal(
+    generalizedProductDescription([
+      "NL* ITALIA Divisionale 2011 9 valori più 5 Euro Argento FDC Set zecca",
+      "NL* ITALIA Repubblica Divisionale 2010 9 valori in Euro FDC",
+    ]),
+    "Italia Repubblica Divisionali in Euro",
+  );
+  assert.equal(
+    generalizedProductDescription(["NL* VEIII 1 LIRA TEMA 1909 QFDC Perizia Sintetica"]),
+    "Monete del Regno d'Italia - VEIII",
+  );
+  assert.equal(
+    generalizedProductDescription(["NL* Medaglia celebrativa 2024 Autore FDC in astuccio"]),
+    "Medaglia celebrativa",
+  );
+  assert.equal(
+    invoiceDescription(["NL* VATICANO 2 Euro 2007 TEMA FDC in folder"], "EBAY", "62449"),
+    "Città del Vaticano Monete Commemorative in Euro - Ordine eBay 62449",
+  );
+  assert.equal(
+    creditDescription("Italia Repubblica Divisionali in Euro - Ordine Shopify #1001"),
+    "Rimborso Italia Repubblica Divisionali in Euro - Ordine Shopify #1001",
+  );
+  assert.equal(isLegacyInvoiceDescription("Vendita beni usati - Ordine eBay 1", "EBAY", "1"), true);
+  assert.equal(
+    isLegacyInvoiceDescription("Vendita prodotti usati - Ordine eBay 1", "EBAY", "1"),
+    true,
+  );
+  const bounded = invoiceDescription(
+    Array.from({ length: 200 }, (_, index) => `Oggetto ${index}`),
+    "EBAY",
+    "1",
+  );
+  assert.ok(bounded.length <= 1000);
+  assert.match(bounded, / - Ordine eBay 1$/);
+  assert.equal(creditDescription("x".repeat(1000)).length, 1000);
 });

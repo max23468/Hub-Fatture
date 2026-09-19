@@ -81,3 +81,9 @@ _Evita_: Canary fiscale, Primo invio
 Stato operativo autorizzato nel quale documenti già dovuti e approvati possono essere trasmessi ad
 Aruba secondo le modalità configurate. Non include documenti creati o scelti soltanto per collaudo.
 _Evita_: Canary, Invio di prova
+
+**Descrizione fiscale generalizzata**:
+Nome collettivo della riga di fattura, ricavato dai titoli dei prodotti dello stesso ordine
+eliminando i dettagli che permettono di riconoscere i singoli beni. Precede il riferimento ordine
+già presente e segue il grado di generalizzazione osservato nelle fatture manuali Aruba.
+_Evita_: Titolo prodotto, Dicitura fissa, Categoria predefinita

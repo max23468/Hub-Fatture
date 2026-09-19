@@ -25,6 +25,7 @@ import {
   recipientTaxes,
 } from "../recipient-comparison.ts";
 import { inferredInvoicePaymentMethod } from "../order-payment-reconciliation.ts";
+import { invoiceDescription, isLegacyInvoiceDescription } from "../invoice-description.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { getConfig } from "../config.server.ts";
@@ -80,6 +81,7 @@ interface CaseOrder {
   payment_method: string | null;
   payments: Array<{ method: string; status: string; amount: number }>;
   customer_snapshot_json: Record<string, unknown>;
+  product_descriptions: string[];
 }
 
 interface CaseRow {
@@ -133,10 +135,13 @@ function today(): string {
 }
 
 function sourceLine(order: CaseOrder) {
-  const label = order.provider === "SHOPIFY" ? "Shopify" : "eBay";
   return {
     orderId: order.id,
-    description: `Vendita beni usati - Ordine ${label} ${order.display_number}`,
+    description: invoiceDescription(
+      order.product_descriptions,
+      order.provider,
+      order.display_number,
+    ),
     quantity: 1,
     unitAmount: order.billable_amount,
     grossAmount: order.gross_amount,
@@ -199,7 +204,11 @@ async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = fals
            ) ORDER BY payments.paid_at, payments.id)
            FROM payments WHERE payments.order_id = orders.id
          ), '[]'::jsonb),
-         'customer_snapshot_json', orders.normalized_snapshot_json -> 'customer'
+         'customer_snapshot_json', orders.normalized_snapshot_json -> 'customer',
+         'product_descriptions', coalesce((
+           SELECT jsonb_agg(order_lines.description ORDER BY order_lines.id)
+           FROM order_lines WHERE order_lines.order_id = orders.id
+         ), '[]'::jsonb)
        ) ORDER BY orders.id) AS orders
        FROM orders WHERE orders.billing_case_id = billing_cases.id
      ) AS case_orders ON true
@@ -288,12 +297,20 @@ function documentInput(
     documentDate: draft?.status === "APPROVED" ? draft.document_date : today(),
     recipient: recipientFromCustomerSnapshot(caseRow.customer_snapshot_json),
     lines:
-      draft?.lines.map((line) => ({
-        orderId: line.order_id,
-        description: line.description,
-        quantity: line.quantity,
-        unitAmount: line.unit_amount,
-      })) ?? caseRow.orders.map(sourceLine),
+      draft?.lines.map((line) => {
+        const order = caseRow.orders.find((candidate) => candidate.id === line.order_id);
+        return {
+          orderId: line.order_id,
+          description:
+            draft.status === "DRAFT" &&
+            order &&
+            isLegacyInvoiceDescription(line.description, order.provider, order.display_number)
+              ? sourceLine(order).description
+              : line.description,
+          quantity: line.quantity,
+          unitAmount: line.unit_amount,
+        };
+      }) ?? caseRow.orders.map(sourceLine),
     paymentStatus: draft?.payment_status ?? sourcePaymentStatus,
     paymentMethod: draft?.payment_method ?? casePaymentMethod(caseRow, profile),
     causale: draft?.causale ?? undefined,
