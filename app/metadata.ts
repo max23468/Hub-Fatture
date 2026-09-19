@@ -14,7 +14,7 @@ const pages = {
   order: { title: "Dettaglio ordine", description: copy.orderDetail.orderStatusHelp },
   preparation: { title: "Preparazione fattura", description: copy.publicPage.intro },
   documents: { title: copy.documents.title, description: copy.documents.intro },
-  creditNote: { title: copy.creditNote.title, description: copy.creditNote.approvalHelp },
+  document: { title: copy.documents.document, description: copy.documents.intro },
   customers: { title: copy.customers.title, description: copy.customers.intro },
   customer: { title: "Cliente", description: copy.customers.currentRecordHelp },
   controls: { title: copy.controls.title, description: copy.controls.intro },

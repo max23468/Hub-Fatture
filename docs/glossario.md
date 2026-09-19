@@ -2,7 +2,7 @@
 
 | Termine UI                         | Equivalente tecnico           | Significato                                                                                      | Non usare                                   |
 | ---------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------- |
-| Preparazione fattura               | `billing_case`                | Area di lavoro che raggruppa gli ordini prima del documento                                      | scheda, pratica                             |
+| Preparazione fattura               | `billing_case`                | Area di lavoro che raggruppa gli ordini finché serve una decisione; poi conta il documento       | scheda, pratica                             |
 | Quando preparare le fatture        | `draft_trigger`               | Regola che avvia la preparazione dopo il pagamento o la spedizione                               | trigger                                     |
 | Ordini di esempio                  | fixture di sviluppo           | Ordini fittizi usati solo per provare l’app                                                      | fixture, dati sintetici                     |
 | Canale di vendita                  | `provider`                    | Shopify oppure eBay, da cui arriva l’ordine                                                      | provider, piattaforma                       |

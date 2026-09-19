@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { copy, errorCodeLabel } from "./copy.it.ts";
+import {
+  copy,
+  documentStateTone,
+  documentTransmissionStatusLabel,
+  errorCodeLabel,
+} from "./copy.it.ts";
 
 test("le attività dei canali non espongono codici interni", () => {
   assert.equal(copy.activity.failedJobTitle("shopify_sync_orders"), "Aggiornamento ordini Shopify");
@@ -71,4 +76,20 @@ test("la sincronizzazione Aruba è descritta come automatica e basata sulle API"
   );
   assert.match(copy.settings.arubaConnectionConflict, /Sincronizzazione completata/);
   assert.match(copy.settings.arubaConnectionConflictHelp, /inventario è aggiornato/);
+});
+
+test("la riga di Documenti traduce anche gli esiti SdI", () => {
+  for (const status of ["SDI_PROCESSING", "DELIVERED", "NOT_DELIVERED", "REJECTED", "UNKNOWN"]) {
+    assert.notEqual(documentTransmissionStatusLabel(status), copy.common.unavailable, status);
+  }
+  assert.equal(documentTransmissionStatusLabel("NOT_DELIVERED"), "Non consegnato");
+  assert.equal(documentTransmissionStatusLabel("SUBMITTED"), "Inviato, esito da verificare");
+});
+
+test("il colore dello stato segue l’esito SdI dei documenti trasmessi", () => {
+  assert.equal(documentStateTone("APPROVED", "DELIVERED"), "success");
+  assert.equal(documentStateTone("APPROVED", "NOT_DELIVERED"), "success");
+  assert.equal(documentStateTone("APPROVED", "REJECTED"), "warning");
+  assert.equal(documentStateTone("APPROVED", "SDI_PROCESSING"), "accent");
+  assert.equal(documentStateTone("DRAFT", null), "neutral");
 });

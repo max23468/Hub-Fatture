@@ -45,6 +45,18 @@ Accettazione tracciata dell’intestazione dichiarata da un privato italiano eBa
 Fiscale è formalmente valido e tutti i dati obbligatori per fatturare sono presenti.
 _Evita_: Correzione del Codice Fiscale, Verifica anagrafica ufficiale
 
+**Preparazione aperta**:
+Preparazione che richiede ancora una decisione o un’azione dell’utente: prima dell’approvazione,
+con una trasmissione in attesa di conferma, dopo uno scarto SdI o con una bozza di nota di credito
+da approvare. L’attesa di un esito SdI non la tiene aperta.
+_Evita_: Preparazione in corso, Trasmissione non conclusa
+
+**Preparazione chiusa**:
+Preparazione che non richiede più azioni: il documento è emesso e trasmesso o creato senza
+trasmissione, oppure la preparazione è stata esclusa dalla fatturazione. Da quel momento conta il
+documento in Documenti; uno scarto SdI o un rimborso successivo la riaprono.
+_Evita_: Preparazione approvata, Preparazione archiviata
+
 **Preparazione approvabile**:
 Preparazione aperta il cui pagamento è acquisito e che supera, nello stesso istante, tutti i
 controlli necessari all’approvazione.

@@ -10,6 +10,7 @@ import { ComparisonTable } from "../components/comparison-table";
 import { CustomerEditor } from "../components/customer-editor";
 import { CustomerEmailApprovalFields } from "../components/customer-email-approval";
 import { DetailSectionHeader } from "../components/detail-section-header";
+import { CreditNoteDraftPanel } from "../components/credit-note-draft";
 import { PreparationActionBar } from "../components/preparation-action-bar";
 import { PreparationAnomalies } from "../components/preparation-anomalies";
 import { ReconciledDocuments } from "../components/reconciled-documents";
@@ -1346,6 +1347,7 @@ export default function BillingCaseDetail() {
     operationalPool,
     operationalReasonCodes,
     projection,
+    creditNoteDrafts,
     storagePending,
   } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
@@ -1403,6 +1405,14 @@ export default function BillingCaseDetail() {
         operationalPool={operationalPool}
         projection={projection}
       />
+      {creditNoteDrafts.map((note) => (
+        <CreditNoteDraftPanel
+          canApprove={canApprove}
+          csrfToken={csrfToken}
+          key={note.id}
+          note={note}
+        />
+      ))}
       <SourceRevisionReview
         csrfToken={csrfToken}
         revision={billingCase.revision}

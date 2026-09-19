@@ -7,24 +7,17 @@ import { DocumentsView } from "../components/documents-view";
 import { ViewNavigation } from "../components/view-navigation";
 import { copy } from "../copy.it";
 import { privateRouteMeta } from "../metadata";
-import { ARUBA_IMPORT_MAX_BYTES } from "../../src/aruba.ts";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
-import { importOfficialArubaFile, listOfficialArubaFiles } from "../../src/db/aruba.server.ts";
 import { documentArchiveSummary, listDocuments } from "../../src/db/document-archive.server.ts";
 import type { DocumentListSortKey } from "../../src/db/document-archive-types.server.ts";
-import {
-  getCustomerEmailSettings,
-  listEmailDeliveries,
-  retryCustomerEmail,
-} from "../../src/db/email.server.ts";
+import { listEmailDeliveries } from "../../src/db/email.server.ts";
 import { publicError } from "../../src/errors.ts";
 import {
-  requestArubaSubmissionReadback,
   requestArubaTargetedLookup,
   requestArubaAdvancedSearch,
 } from "../../src/db/aruba-api-readback.server.ts";
 import { listRemoteDocumentsPage } from "../../src/db/aruba-inventory-queries.server.ts";
-import { readForm, readMultipartForm } from "../../src/http.server.ts";
+import { readForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
 import { parseSort } from "../table-sort";
 
@@ -120,29 +113,20 @@ export async function loader({ request }: Route.LoaderArgs) {
       ? listRemoteDocumentsPage({ query: filters.query || undefined, page })
       : Promise.resolve({ rows: [], hasNext: false, total: 0 }),
   ]);
-  const documentIds = documents.rows.map((document) => document.id);
-  const [officialFiles, emailDeliveries, customerEmail] = await Promise.all([
-    listOfficialArubaFiles(documentIds),
-    listEmailDeliveries(documentIds),
-    getCustomerEmailSettings(),
-  ]);
+  const emailDeliveries = await listEmailDeliveries(documents.rows.map((document) => document.id));
   return {
     username: user.username,
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
     documents,
-    officialFiles,
     emailDeliveries,
-    emailEnabled: customerEmail.mode !== "DISABLED",
     filters,
     page,
     summary,
     sort,
     view,
     remoteDocuments,
-    fileImported: url.searchParams.get("file") === "importato",
     arubaLookupRequested: url.searchParams.get("aruba") === "ricerca-richiesta",
-    arubaRefreshRequested: url.searchParams.get("aruba") === "aggiornamento-richiesto",
   };
 }
 
@@ -154,36 +138,8 @@ export async function action({ request }: Route.ActionArgs) {
       canApprove: user.canApprove,
       requestId: requestId(request),
     };
-    if (request.headers.get("content-type")?.toLowerCase().startsWith("multipart/form-data;")) {
-      const form = await readMultipartForm(request, {
-        maxBytes: ARUBA_IMPORT_MAX_BYTES + 64 * 1024,
-      });
-      assertCsrf(user, String(form.get("csrf") ?? ""));
-      const file = form.get("file");
-      if (!(file instanceof File)) throw new Response("File mancante", { status: 422 });
-      await importOfficialArubaFile(
-        String(form.get("documentId") ?? ""),
-        form.get("fileKind"),
-        Buffer.from(await file.arrayBuffer()),
-        actor,
-      );
-      return redirect("/documenti?file=importato");
-    }
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
-    if (form.get("intent") === "retry-customer-email") {
-      await retryCustomerEmail(
-        form.get("documentId") ?? "",
-        actor,
-        form.get("confirmUncertain") === "yes",
-        form.get("newRecipient") ?? undefined,
-      );
-      return redirect("/documenti?email=preparata");
-    }
-    if (form.get("intent") === "refresh-aruba-status") {
-      await requestArubaSubmissionReadback(form.get("documentId") ?? "", actor);
-      return redirect("/documenti?aruba=aggiornamento-richiesto");
-    }
     if (form.get("intent") === "lookup-aruba-document") {
       await requestArubaTargetedLookup(
         {
@@ -225,27 +181,16 @@ export async function action({ request }: Route.ActionArgs) {
 
 function DocumentNotices({
   arubaLookupRequested,
-  arubaRefreshRequested,
   error,
-  fileImported,
 }: {
   arubaLookupRequested: boolean;
-  arubaRefreshRequested: boolean;
   error: string | null;
-  fileImported: boolean;
 }) {
   return (
     <>
-      {fileImported ? (
-        <p className="notice" role="status">
-          {copy.documents.fileImported}
-        </p>
-      ) : null}
-      {arubaLookupRequested || arubaRefreshRequested ? (
+      {arubaLookupRequested ? (
         <p className="notice notice--success" role="status">
-          {arubaLookupRequested
-            ? copy.documents.arubaLookupRequested
-            : copy.documents.arubaRefreshRequested}
+          {copy.documents.arubaLookupRequested}
         </p>
       ) : null}
       {error ? (
@@ -263,18 +208,14 @@ export default function Documents() {
     canApprove,
     csrfToken,
     documents,
-    officialFiles,
     emailDeliveries,
-    emailEnabled,
     filters,
     page,
     summary,
     sort,
     view,
-    fileImported,
     remoteDocuments,
     arubaLookupRequested,
-    arubaRefreshRequested,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const error = actionData && "message" in actionData ? actionData.message : null;
@@ -314,12 +255,7 @@ export default function Documents() {
         label={copy.documents.viewsLabel}
         mobileLayout="grid"
       />
-      <DocumentNotices
-        arubaLookupRequested={arubaLookupRequested}
-        arubaRefreshRequested={arubaRefreshRequested}
-        error={error}
-        fileImported={fileImported}
-      />
+      <DocumentNotices arubaLookupRequested={arubaLookupRequested} error={error} />
       {view === "inventario-aruba" ? (
         <ArubaInventoryPanel
           canApprove={canApprove}
@@ -330,13 +266,9 @@ export default function Documents() {
         />
       ) : (
         <DocumentsView
-          canApprove={canApprove}
-          csrfToken={csrfToken}
           documents={documents}
           emailDeliveries={emailDeliveries}
-          emailEnabled={emailEnabled}
           filters={filters}
-          officialFiles={officialFiles}
           page={page}
           summary={summary}
           sort={sort}

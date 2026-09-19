@@ -278,7 +278,7 @@ test(
       }
       const byCreditNote = await search.searchGlobal("NC-RICERCA");
       assert.equal(byCreditNote.creditNotes.length, 1);
-      assert.match(byCreditNote.creditNotes[0]!.href, /^\/documenti\/\d+\/nota$/);
+      assert.match(byCreditNote.creditNotes[0]!.href, /^\/documenti\/\d+$/);
 
       const activityCase = (
         await database.getPool().query(

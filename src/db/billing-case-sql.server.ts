@@ -33,6 +33,38 @@ const openStatusList = OPEN_BILLING_CASE_STATUSES.map((status) => `'${status}'`)
 export const openBillingCaseSql = (alias = "billing_cases") =>
   `${alias}.status IN (${openStatusList})`;
 
+/**
+ * Preparazione aperta: richiede ancora una decisione dell'utente. Oltre agli stati modificabili,
+ * la tengono aperta una trasmissione API in attesa di conferma e una nota di credito in bozza.
+ * L'attesa di un esito SdI no: da quel momento il documento si segue in Documenti.
+ */
+export const billingCaseAwaitingActionSql = (alias = "billing_cases") => `(
+  ${alias}.status IN (${openStatusList})
+  OR EXISTS (
+    SELECT 1 FROM documents AS open_credit_note
+    WHERE open_credit_note.billing_case_id = ${alias}.id
+      AND open_credit_note.kind = 'CREDIT_NOTE' AND open_credit_note.status = 'DRAFT'
+  )
+  OR EXISTS (
+    SELECT 1
+    FROM documents AS awaiting_document
+    JOIN aruba_batch_documents AS awaiting_batch_document
+      ON awaiting_batch_document.document_id = awaiting_document.id
+    JOIN aruba_batches AS awaiting_batch
+      ON awaiting_batch.id = awaiting_batch_document.batch_id
+    WHERE awaiting_document.billing_case_id = ${alias}.id
+      AND awaiting_document.status = 'APPROVED'
+      AND awaiting_batch.transport = 'API' AND awaiting_batch.status = 'AWAITING_CONFIRMATION'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM aruba_batch_documents AS newer_batch_document
+        JOIN aruba_batches AS newer_batch ON newer_batch.id = newer_batch_document.batch_id
+        WHERE newer_batch_document.document_id = awaiting_document.id
+          AND newer_batch.created_at > awaiting_batch.created_at
+      )
+  )
+)`;
+
 /** Un ordine annullato, rimborsato o storico non riconciliato non entra in una preparazione. */
 export const orderBillableSql = (alias = "orders") =>
   `${alias}.cancelled_at IS NULL AND ${alias}.payment_status <> 'REFUNDED' AND ${alias}.trigger_status NOT IN ('INVOICED', 'LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') AND NOT ${approvedInvoiceOrderLinkSql(alias)} AND (NOT coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false) OR ${alias}.historical_reconciliation_outcome = 'NOT_INVOICED')`;

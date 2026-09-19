@@ -340,7 +340,7 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
     customerName: row.customer_name,
     documentDate: row.document_date,
     status: row.status,
-    href: `/ordini/preparazione/${row.billing_case_id}`,
+    href: `/documenti/${row.id}`,
   }));
 
   return {
@@ -365,7 +365,7 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
       customerName: row.customer_name,
       documentDate: row.document_date,
       status: row.status,
-      href: `/documenti/${row.id}/nota`,
+      href: `/documenti/${row.id}`,
     })),
     customers: customers.rows.map((row) => ({
       id: row.id,

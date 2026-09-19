@@ -1,6 +1,7 @@
 import { errorCodeLabel } from "../src/error-label.ts";
 import { arubaSettingsCopy } from "./copy-aruba.it.ts";
 import { controlsCopy } from "./copy-controls.it.ts";
+import { documentDetailCopy } from "./copy-document-detail.it.ts";
 import { arubaTransmissionStatusCopy, documentArubaSearchCopy } from "./copy-documents-aruba.it.ts";
 import { searchCopy } from "./copy-search.it.ts";
 
@@ -388,6 +389,7 @@ export const copy = {
     noDocuments: "Nessun documento collegato.",
   },
   orderDetail: {
+    documents: "Documenti emessi",
     arubaDocuments: "Documenti e progressi rilevati in Aruba",
     order: (number: string) => `Ordine ${number}`,
     orderStatus: "Stato dell’ordine",
@@ -471,7 +473,6 @@ export const copy = {
       `${status} · ultima lettura ${updatedAt}`,
     arubaPreflightHelp:
       "Approva avvia un readback dedicato alla revisione corrente. Dopo l’esito positivo, conferma di nuovo entro cinque minuti.",
-    back: "Torna ai documenti",
   },
   preparation: {
     eyebrow: "Da fatturare",
@@ -543,7 +544,7 @@ export const copy = {
     invoicedTitle: "Fatture collegate",
     invoicedHelp:
       "Gli ordini indicati sono stati riconciliati con una fattura già emessa. La preparazione originaria resta consultabile e rimanda al documento archiviato.",
-    archivedPreparation: (number: string) => `Apri il documento nella preparazione ${number}`,
+    archivedDocument: "Apri il documento",
   },
   document: {
     profileMissing: "Il profilo fiscale approvato non è ancora configurato.",
@@ -788,7 +789,6 @@ export const copy = {
     allTypes: "Tutti",
     allStatuses: "Tutti",
     allTransmissionStatuses: "Tutti",
-    filesAndActions: "File e azioni",
     availableFiles: (count: number) =>
       `${count} ${count === 1 ? "file disponibile" : "file disponibili"}`,
     noOfficialFiles: "Nessun file ufficiale importato.",
@@ -866,6 +866,7 @@ export const copy = {
     openOrders: "Vai agli ordini",
   },
   controls: controlsCopy,
+  documentDetail: documentDetailCopy,
   activity: {
     arubaAttentionTitle: "Verifiche Aruba",
     arubaAttentionHelp: "Documenti non collegati, ambigui, discordanti o con stato remoto incerto.",
@@ -1226,6 +1227,34 @@ export const copy = {
     home: "Torna alla dashboard",
   },
 } as const;
+
+// La riga di Documenti mostra sia gli stati di preparazione sia gli esiti Aruba/SdI.
+export function documentTransmissionStatusLabel(status: string) {
+  return (
+    copy.documents.transmissionState[status] ??
+    copy.documents.arubaBatchStatus[status] ??
+    copy.documents.arubaDocumentStatus[status] ??
+    copy.common.unavailable
+  );
+}
+
+const documentWarningStatuses = new Set([
+  "VALIDATION_FAILED",
+  "RECONCILIATION_REQUIRED",
+  "DRY_RUN_FAILED",
+  "SEND_FAILED",
+  "REJECTED",
+  "UNKNOWN",
+  "UNKNOWN_REMOTE_STATE",
+]);
+// Consegna e mancata consegna chiudono la trasmissione con esito SdI valido.
+const documentSuccessStatuses = new Set(["RECONCILED", "DELIVERED", "NOT_DELIVERED"]);
+
+export function documentStateTone(status: string, arubaStatus: string | null) {
+  if (arubaStatus && documentWarningStatuses.has(arubaStatus)) return "warning";
+  if (arubaStatus && documentSuccessStatuses.has(arubaStatus)) return "success";
+  return status === "APPROVED" ? "accent" : "neutral";
+}
 
 export const orderStatusLabels: Record<string, string> = {
   WAITING_FOR_TRIGGER: "In attesa di pagamento o spedizione",
