@@ -610,6 +610,25 @@ test("le descrizioni fiscali generalizzano i titoli come le fatture manuali Arub
     "Città del Vaticano Monete Commemorative in Euro - Ordine eBay 62449",
   );
   assert.equal(
+    invoiceDescription(
+      ["NL* CINA CHINA 10 YUAN 2018 30 Grammi ARGENTO PURO Serie PANDA - UNC in oblo'"],
+      "EBAY",
+      "62473",
+    ),
+    "Cina - Ordine eBay 62473",
+  );
+  assert.equal(
+    generalizedProductDescription([
+      "NL* Medaglia celebrativa 2024 Autore FDC in astuccio",
+      "NL* Francobollo commemorativo 2020 nuovo",
+    ]),
+    "Medaglia celebrativa, Francobollo commemorativo",
+  );
+  assert.equal(
+    generalizedProductDescription(["Italia monete e banconote Euro FDC"]),
+    "Italia Repubblica Monete, Banconote in Euro",
+  );
+  assert.equal(
     creditDescription("Italia Repubblica Divisionali in Euro - Ordine Shopify #1001"),
     "Rimborso Italia Repubblica Divisionali in Euro - Ordine Shopify #1001",
   );

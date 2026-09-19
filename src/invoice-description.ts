@@ -13,6 +13,8 @@ function normalizedTitle(title: string) {
   return title
     .normalize("NFKC")
     .replace(/^\s*(?:NL\s*\*\s*)+/iu, "")
+    .replace(/\bchina\b/giu, "Cina")
+    .replace(/\bcina(?:\s+cina)+\b/giu, "Cina")
     .replace(/\s+/gu, " ")
     .trim();
 }
@@ -54,9 +56,9 @@ function generalizedNumismaticTitle(title: string) {
   const kind = isDivisional
     ? "Divisionali"
     : hasCoins && hasBanknotes
-      ? "Monete / Banconote"
+      ? "Monete, Banconote"
       : hasBooks && hasCoins
-        ? "Monete / Libri"
+        ? "Monete, Libri"
         : hasBooks
           ? "Manuale del Collezionista"
           : hasBanknotes
@@ -83,7 +85,7 @@ export function generalizedProductDescription(titles: readonly string[]) {
   const descriptions = titles.map(normalizedTitle).map((title) => {
     return generalizedNumismaticTitle(title) ?? sanitizedResidual(title);
   });
-  return [...new Set(descriptions.filter(Boolean))].join(" / ");
+  return [...new Set(descriptions.filter(Boolean))].join(", ");
 }
 
 export function invoiceDescription(
