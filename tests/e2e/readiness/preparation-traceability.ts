@@ -8,7 +8,7 @@ import {
   waitForUiMotionToSettle,
 } from "./support.ts";
 
-test("una fattura riconciliata rimanda alla preparazione originaria", async ({ page }) => {
+test("una fattura riconciliata rimanda agli ordini che copre", async ({ page }) => {
   await resetReadinessState();
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -87,21 +87,20 @@ test("una fattura riconciliata rimanda alla preparazione originaria", async ({ p
   await page.goto("/documenti?vista=fatture&q=000001");
   await page.waitForLoadState("networkidle");
   await expect(page).toHaveTitle("Documenti · Hub Fatture");
-  await expect(page.getByRole("link", { name: "Preparazione originaria 000001" })).toBeVisible();
   await expect(page.getByText("FPR 1667/26", { exact: true })).toBeVisible();
   pageErrors.length = 0;
 
-  await page.getByRole("link", { name: "Preparazione originaria 000001" }).click();
-  await expect(page).toHaveURL(/\/ordini\/preparazione\/1$/);
+  // Il documento si consulta in Documenti e rimanda agli ordini che copre.
+  await page.getByRole("link", { name: "Apri FPR 1667/26" }).click();
+  await expect(page).toHaveURL(/\/documenti\/\d+$/);
   await page.waitForLoadState("networkidle");
-  await expect(page.getByRole("heading", { name: "Fatture collegate" })).toBeVisible();
-  await expect(page.getByText("FPR 1667/26 · 197,15 €", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "FPR 1667/26" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Shopify #QA-4037" })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  const linkedInvoices = page.getByRole("heading", { name: "Fatture collegate" });
-  await expect(linkedInvoices).toBeVisible();
-  await waitForUiMotionToSettle(linkedInvoices);
+  const links = page.getByRole("heading", { name: "Collegamenti" });
+  await expect(links).toBeVisible();
+  await waitForUiMotionToSettle(links);
   await expectViewportFits(page);
   expect(pageErrors).toEqual([]);
 });

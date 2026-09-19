@@ -133,9 +133,17 @@ export async function verifyHistoricalAndCreditNoteFlow(page: Page) {
   expect(noteId).toBeTruthy();
   await page.goto("/documenti?vista=note-credito");
   await expect(page).toHaveURL(/\/documenti\?vista=note-credito$/);
-  const creditNoteLink = page.locator(`a[href="/documenti/${noteId}/nota"]`).first();
-  await expect(creditNoteLink).toHaveAttribute("href", `/documenti/${noteId}/nota`);
+  const creditNoteLink = page.locator(`a[href="/documenti/${noteId}"]`).first();
+  await expect(creditNoteLink).toHaveAttribute("href", `/documenti/${noteId}`);
   await creditNoteLink.click();
+  // In Documenti la bozza si consulta; si rivede e si approva nella preparazione.
+  await expect(page).toHaveURL(new RegExp(`/documenti/${noteId}$`));
+  await expect(page.getByText("La bozza si rivede e si approva nella preparazione.")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }),
+  ).toHaveCount(0);
+  await page.getByRole("link", { name: /^Preparazione fattura \d{6}$/ }).click();
+  await expect(page).toHaveURL(/\/ordini\/preparazione\/\d+$/);
   await expect(page.getByRole("heading", { name: "Comparatore fiscale" })).toBeVisible();
   await expect(page.getByRole("table", { name: "Righe" })).toContainText("rimborso m6-e2e-refund");
   await expect(page.getByRole("table", { name: "Righe" })).toContainText("N5");
@@ -146,15 +154,15 @@ export async function verifyHistoricalAndCreditNoteFlow(page: Page) {
   for (const width of [1280, 900, 320]) {
     await page.setViewportSize({ width, height: width === 320 ? 780 : 800 });
     await expectViewportFits(page);
-    await expect(page.locator(".comparison-table").first()).toBeVisible();
+    await expect(page.locator(".credit-note-draft .comparison-table").first()).toBeVisible();
   }
   await page.setViewportSize({ width: 1280, height: 720 });
   await page
     .getByLabel(/Confermo rimborsi, riferimenti alla fattura, totale e numerazione irreversibile/)
     .check();
   await page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }).click();
-  // L'approvazione porta alla preparazione: è lì che si conferma la trasmissione.
-  await expect(page).toHaveURL(/\/ordini\/preparazione\/\d+$/, { timeout: 60_000 });
+  // Senza conferma di trasmissione in attesa la preparazione si chiude e porta al documento.
+  await expect(page).toHaveURL(/\/documenti\/\d+$/, { timeout: 60_000 });
 
   const note = (
     await database.getPool().query<{
@@ -217,7 +225,7 @@ export async function verifyHistoricalAndCreditNoteFlow(page: Page) {
   await page.goto("/documenti?vista=note-credito");
   await expect(
     page.locator(".document-row").filter({
-      has: page.locator(`a[href='/documenti/${noteId}/nota']`),
+      has: page.locator(`a[href='/documenti/${noteId}']`),
     }),
   ).toContainText("Inviata");
 }

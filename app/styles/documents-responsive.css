@@ -79,10 +79,6 @@
   .document-row__email {
     grid-column: 3;
   }
-
-  .document-row__tools-content {
-    grid-template-columns: 1fr;
-  }
 }
 @media (max-width: 48rem) {
   .document-archive {
@@ -152,8 +148,6 @@
     text-align: left;
   }
 
-  .document-row__tools > summary,
-  .document-row__tools-content,
   .document-empty {
     padding-inline: var(--space-4);
   }

@@ -13,6 +13,7 @@ import { getPool } from "./client.server.ts";
 import { actionableConnectorFailures } from "./connector-jobs.server.ts";
 import { openBillingCasePoolSql } from "./billing-case-operational-projection.server.ts";
 import {
+  billingCaseAwaitingActionSql,
   billingCasePendingPaymentSql,
   effectiveApprovedInvoiceSql,
   openBillingCaseSql,
@@ -96,6 +97,16 @@ interface OrderDetailRow {
   historical_invoice_id: string | null;
   billing_case_id: string | null;
   case_number: string | null;
+  billing_case_open: boolean;
+  documents: Array<{
+    id: string;
+    kind: "INVOICE" | "CREDIT_NOTE";
+    origin: "HUB" | "ARUBA_HISTORY";
+    series: string;
+    fiscal_year: number;
+    fiscal_number: number;
+    aruba_status: string | null;
+  }>;
   customer_name: string;
   customer_kind: string;
   customer_email: string | null;
@@ -256,6 +267,29 @@ export async function getOrder(id: string) {
             orders.normalized_snapshot_json #>> '{customerSnapshot,sourceConfidence}' AS source_confidence,
             (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
             billing_cases.public_number AS case_number,
+            coalesce(${billingCaseAwaitingActionSql("billing_cases")}, false) AS billing_case_open,
+            coalesce((
+              SELECT jsonb_agg(jsonb_build_object(
+                'id', order_documents.id::text, 'kind', order_documents.kind,
+                'origin', order_documents.origin, 'series', order_documents.series,
+                'fiscal_year', order_documents.fiscal_year,
+                'fiscal_number', order_documents.fiscal_number,
+                'aruba_status', (
+                  SELECT coalesce(submissions.status, batches.status)
+                  FROM aruba_batch_documents AS batch_documents
+                  JOIN aruba_batches AS batches ON batches.id = batch_documents.batch_id
+                  LEFT JOIN aruba_submissions AS submissions
+                    ON submissions.batch_id = batches.id
+                   AND submissions.document_id = batch_documents.document_id
+                  WHERE batch_documents.document_id = order_documents.id
+                  ORDER BY batches.created_at DESC LIMIT 1
+                )
+              ) ORDER BY order_documents.document_date, order_documents.id)
+              FROM document_orders
+              JOIN documents AS order_documents
+                ON order_documents.id = document_orders.document_id
+              WHERE document_orders.order_id = orders.id AND order_documents.status = 'APPROVED'
+            ), '[]'::jsonb) AS documents,
             (SELECT document_orders.document_id::text
              FROM document_orders JOIN documents ON documents.id = document_orders.document_id
              WHERE document_orders.order_id = orders.id
@@ -565,7 +599,7 @@ export async function listOpenActivities(
               documents.recipient_snapshot_json ->> 'displayName',
               documents.recipient_snapshot_json, NULL::bigint, NULL::text,
               billing_cases.local_order_date::text,
-              '/documenti/' || documents.id || '/nota',
+              '/ordini/preparazione/' || documents.billing_case_id,
               documents.created_at
        FROM documents
        JOIN billing_cases ON billing_cases.id = documents.billing_case_id

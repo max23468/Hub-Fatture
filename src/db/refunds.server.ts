@@ -518,6 +518,7 @@ export async function getCreditNoteProjection(documentId: string) {
   const arubaSettings = await getArubaSettings();
   return {
     id: row.id,
+    billingCaseId: row.billing_case_id,
     status: row.status,
     draftVersion: row.draft_version,
     projectionSha256: approvedXml
@@ -542,9 +543,25 @@ export async function getCreditNoteProjection(documentId: string) {
   };
 }
 
+/** Le note di credito in bozza tengono aperta la preparazione: lì si rivedono e si approvano. */
+export async function listBillingCaseCreditNoteDrafts(billingCaseId: string) {
+  if (!isDatabaseId(billingCaseId)) return [];
+  const drafts = await getPool().query<{ id: string }>(
+    `SELECT id::text FROM documents
+     WHERE billing_case_id = $1 AND kind = 'CREDIT_NOTE' AND status = 'DRAFT'
+     ORDER BY created_at, id`,
+    [billingCaseId],
+  );
+  const projections = await Promise.all(
+    drafts.rows.map((draft) => getCreditNoteProjection(draft.id)),
+  );
+  return projections.filter((projection) => projection !== null);
+}
+
 export async function approveCreditNote(
   documentId: string,
   raw: {
+    billingCaseId: string;
     draftVersion: unknown;
     projectionSha256: unknown;
     confirmApproval: boolean;
@@ -573,6 +590,10 @@ export async function approveCreditNote(
       projectionSha256: expectedProjection,
     });
     const row = await loadCredit(client, documentId, true);
+    // La nota si approva soltanto dalla preparazione a cui appartiene.
+    if (row && row.billing_case_id !== raw.billingCaseId) {
+      throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
+    }
     if (!row || row.status !== "DRAFT" || row.draft_version !== expectedVersion) {
       throw new AppError("CONFLICT_REVISION", 409);
     }

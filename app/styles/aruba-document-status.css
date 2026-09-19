@@ -1,23 +1,19 @@
-.document-resource-grid,
 .document-aruba-status__body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-6);
 }
 
-.document-resource-grid > section,
 .document-aruba-status__body > section {
   min-width: 0;
 }
 
-.document-resource-grid h3,
 .document-aruba-status h3,
 .document-aruba-status h4,
 .document-aruba-status p {
   margin: 0;
 }
 
-.document-resource-grid h3,
 .document-aruba-status h4 {
   margin-bottom: var(--space-3);
   font-size: 0.9375rem;
@@ -141,7 +137,6 @@
 }
 
 @media (max-width: 48rem) {
-  .document-resource-grid,
   .document-aruba-status__body,
   .document-aruba-status > header,
   .document-aruba-status > header dl {

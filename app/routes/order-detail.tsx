@@ -11,6 +11,7 @@ import {
   customerKindLabels,
   customerMatchLabels,
   copy,
+  documentTransmissionStatusLabel,
   fulfillmentStatusLabels,
   orderStatusLabels,
   paymentStatusLabels,
@@ -26,6 +27,7 @@ import { readForm, readMultipartForm } from "../../src/http.server.ts";
 import { forcePrepareOrder } from "../../src/db/order-commands.server.ts";
 import { reconcileHistoricalOrder } from "../../src/db/historical-order-reconciliation.server.ts";
 import { getOrder } from "../../src/db/order-queries.server.ts";
+import { fiscalNumberLabel } from "../../src/fiscal-number.ts";
 import { listOrderRemoteDocuments } from "../../src/db/aruba-inventory-queries.server.ts";
 
 type OrderLine = NonNullable<Awaited<ReturnType<typeof getOrder>>>["lines"][number];
@@ -339,22 +341,60 @@ function OrderStatusFacts({ order }: { order: Order }) {
         <dt>{copy.orderDetail.billableTotal}</dt>
         <dd>{euros(order.billable_amount)}</dd>
       </div>
+      <OrderInvoicing order={order} />
+    </dl>
+  );
+}
+
+/**
+ * Una preparazione aperta è il posto dove lavorare; chiusa, contano i documenti emessi.
+ * Senza documenti resta raggiungibile la preparazione chiusa, per motivo e riattivazione.
+ */
+function OrderInvoicing({ order }: { order: Order }) {
+  if (order.documents.length && !order.billing_case_open) {
+    return (
       <div>
-        <dt>{copy.orderDetail.preparation}</dt>
+        <dt>{copy.orderDetail.documents}</dt>
         <dd>
-          {order.billing_case_id ? (
-            <Link
-              aria-label={copy.orders.openPreparation(order.case_number!)}
-              to={`/ordini/preparazione/${order.billing_case_id}`}
-            >
-              {order.case_number}
-            </Link>
-          ) : (
-            copy.orderDetail.notStarted
-          )}
+          {order.documents.map((document, index) => (
+            <span key={document.id}>
+              {index ? ", " : null}
+              <Link to={`/documenti/${document.id}`}>
+                {`${
+                  document.kind === "CREDIT_NOTE"
+                    ? copy.documents.creditNote
+                    : copy.documents.invoice
+                } ${fiscalNumberLabel(document.series, document.fiscal_year, document.fiscal_number)}`}
+              </Link>
+              {` · ${
+                document.origin === "ARUBA_HISTORY"
+                  ? copy.documents.arubaHistory
+                  : document.aruba_status
+                    ? documentTransmissionStatusLabel(document.aruba_status)
+                    : copy.documents.transmissionState.NOT_PREPARED
+              }`}
+            </span>
+          ))}
         </dd>
       </div>
-    </dl>
+    );
+  }
+  return (
+    <div>
+      <dt>{copy.orderDetail.preparation}</dt>
+      <dd>
+        {order.billing_case_id ? (
+          <Link
+            aria-label={copy.orders.openPreparation(order.case_number!)}
+            to={`/ordini/preparazione/${order.billing_case_id}`}
+          >
+            {order.case_number}
+          </Link>
+        ) : (
+          copy.orderDetail.notStarted
+        )}
+      </dd>
+    </div>
   );
 }
 

@@ -876,6 +876,18 @@ test(
         refunds.refreshCreditNoteDraft(transaction, noteId!),
       );
       let projection = await refunds.getCreditNoteProjection(noteId!);
+      // La bozza tiene aperta la preparazione della fattura: lì si rivede e si approva.
+      const documentDetail = await import("./document-detail.server.ts");
+      assert.equal(
+        await documentDetail.closedBillingCaseDocumentId(projection!.billingCaseId),
+        null,
+      );
+      assert.deepEqual(
+        (await refunds.listBillingCaseCreditNoteDrafts(projection!.billingCaseId)).map(
+          (draft) => draft.id,
+        ),
+        [noteId],
+      );
       assert.match(projection!.xml, /<Data>2026-08-10<\/Data>/);
       assert.ok(projection?.xml.includes("<TipoDocumento>TD04</TipoDocumento>"));
       assert.ok(projection?.xml.includes("<DatiFattureCollegate>"));
@@ -900,6 +912,7 @@ test(
         refunds.approveCreditNote(
           noteId!,
           {
+            billingCaseId: projection!.billingCaseId,
             draftVersion: projection!.draftVersion,
             projectionSha256: projection!.projectionSha256,
             confirmApproval: true,
@@ -916,9 +929,32 @@ test(
         (error) => error instanceof AppError && error.code === "CONFLICT_REVISION",
       );
       projection = await refunds.getCreditNoteProjection(noteId!);
+      // La nota si approva soltanto dalla preparazione a cui appartiene.
+      await assert.rejects(
+        refunds.approveCreditNote(
+          noteId!,
+          {
+            billingCaseId: "999999",
+            draftVersion: projection!.draftVersion,
+            projectionSha256: projection!.projectionSha256,
+            confirmApproval: true,
+            arubaMode: projection!.arubaMode,
+            emailChoice: "SKIP",
+            emailModeVersion: projection!.customerEmail.version,
+          },
+          {
+            id: Number(user.rows[0]!.id),
+            canApprove: true,
+            requestId: "approve-credit-note-foreign-case",
+          },
+        ),
+        (error) => error instanceof AppError && error.code === "DOCUMENT_NOT_APPROVABLE",
+      );
+      projection = await refunds.getCreditNoteProjection(noteId!);
       const approved = await refunds.approveCreditNote(
         noteId!,
         {
+          billingCaseId: projection!.billingCaseId,
           draftVersion: projection!.draftVersion,
           projectionSha256: projection!.projectionSha256,
           confirmApproval: true,

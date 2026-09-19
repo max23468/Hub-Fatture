@@ -28,9 +28,7 @@ export function ReconciledDocuments({ documents }: { documents: ReconciledSource
                 </span>
               ))}
             </span>
-            <Link to={`/ordini/preparazione/${document.billing_case_id}`}>
-              {copy.preparation.archivedPreparation(document.public_number)}
-            </Link>
+            <Link to={`/documenti/${document.id}`}>{copy.preparation.archivedDocument}</Link>
           </li>
         ))}
       </ul>

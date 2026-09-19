@@ -462,6 +462,50 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
     assert.deepEqual(await aruba.listOfficialArubaFiles([]), []);
     assert.deepEqual(await email.listEmailDeliveries([]), []);
 
+    // Il dettaglio riunisce stato, file ed e-mail; la preparazione chiusa porta al documento.
+    const detail = await import("./document-detail.server.ts");
+    const reconciledDetail = await detail.getDocumentDetail(toReconcile.id);
+    assert.equal(reconciledDetail?.aruba_status, "DELIVERED");
+    assert.equal(reconciledDetail?.billing_case_open, false);
+    assert.equal(reconciledDetail?.content, null);
+    assert.deepEqual(
+      reconciledDetail?.officialFiles.map((file) => file.document_id),
+      [toReconcile.id],
+    );
+    assert.equal(reconciledDetail?.email?.document_id, toReconcile.id);
+    assert.equal(await detail.getDocumentDetail("non-numerico"), null);
+    const caseOf = async (documentId: string) =>
+      (
+        await database
+          .getPool()
+          .query<{ id: string }>(
+            "SELECT billing_case_id::text AS id FROM documents WHERE id = $1",
+            [documentId],
+          )
+      ).rows[0]!.id;
+    const reconciledCase = await caseOf(toReconcile.id);
+    assert.equal(await detail.closedBillingCaseDocumentId(reconciledCase), toReconcile.id);
+
+    // Una conferma di trasmissione in attesa tiene aperta la preparazione.
+    await database.getPool().query(
+      `INSERT INTO aruba_batches
+         (id, environment, mode, account_reference, manifest_sha256, document_count,
+          status, requires_reconciliation, created_by, transport)
+       VALUES
+         ('00000000-0000-4000-8000-000000000002', 'MOCK', 'CONTEXTUAL_CONFIRMATION',
+          'synthetic', repeat('7', 64), 1, 'AWAITING_CONFIRMATION', false, 1, 'API')`,
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_batch_documents
+         (batch_id, document_id, position, document_revision, xml_sha256, filename)
+       VALUES
+         ('00000000-0000-4000-8000-000000000002', $1, 1, 1, repeat('d', 64),
+          'FPR_1001_26.xml')`,
+      [toSend.id],
+    );
+    assert.equal(await detail.closedBillingCaseDocumentId(await caseOf(toSend.id)), null);
+    assert.equal((await detail.getDocumentDetail(toSend.id))?.billing_case_open, true);
+
     await database.closePool();
   } finally {
     await import("./client.server.ts").then(({ closePool }) => closePool());

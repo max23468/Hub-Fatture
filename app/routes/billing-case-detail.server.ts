@@ -10,7 +10,9 @@ import {
   getInvoiceProjection,
   saveInvoiceDraft,
 } from "../../src/db/documents.server.ts";
+import { closedBillingCaseDocumentId } from "../../src/db/document-detail.server.ts";
 import { getHistoricalInvoiceProjection } from "../../src/db/historical-invoice-projection.server.ts";
+import { approveCreditNote, listBillingCaseCreditNoteDrafts } from "../../src/db/refunds.server.ts";
 import {
   addOrderToBillingCase,
   correctBillingCaseCustomer,
@@ -70,6 +72,22 @@ function runIntent(
         confirmApproval: form.get("confirmApproval") === "yes",
         confirmPending: form.get("confirmPending") === "yes",
         confirmDifference: form.get("confirmDifference") === "yes",
+        arubaMode: form.get("arubaMode"),
+        confirmArubaDowngrade: form.get("confirmArubaDowngrade") === "yes",
+        emailChoice: form.get("emailChoice"),
+        emailModeVersion: form.get("emailModeVersion"),
+      },
+      actor,
+    );
+  }
+  if (intent === "approve-credit-note") {
+    return approveCreditNote(
+      form.get("documentId") ?? "",
+      {
+        billingCaseId: caseId,
+        draftVersion: form.get("draftVersion"),
+        projectionSha256: form.get("projectionSha256"),
+        confirmApproval: form.get("confirmApproval") === "yes",
         arubaMode: form.get("arubaMode"),
         confirmArubaDowngrade: form.get("confirmArubaDowngrade") === "yes",
         emailChoice: form.get("emailChoice"),
@@ -164,11 +182,16 @@ async function invoiceProjection(caseId: string) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const [user, billingCase, projection, reconciledDocuments] = await Promise.all([
-    requireSessionUser(request),
+  const user = await requireSessionUser(request);
+  const storagePending = new URL(request.url).searchParams.get("archiviazione") === "pendente";
+  // Una preparazione chiusa con fattura emessa non è più un luogo di lavoro.
+  const closedDocumentId = storagePending ? null : await closedBillingCaseDocumentId(params.caseId);
+  if (closedDocumentId) throw redirect(`/documenti/${closedDocumentId}`);
+  const [billingCase, projection, reconciledDocuments, creditNoteDrafts] = await Promise.all([
     getBillingCase(params.caseId),
     invoiceProjection(params.caseId),
     listReconciledDocumentsForSourceCase(params.caseId),
+    listBillingCaseCreditNoteDrafts(params.caseId),
   ]);
   if (!billingCase) throw new Response("Preparazione non trovata", { status: 404 });
   if (
@@ -191,7 +214,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     operationalPool: operationalProjection?.operationalPool ?? null,
     operationalReasonCodes: operationalProjection?.reasonCodes ?? [],
     projection,
-    storagePending: new URL(request.url).searchParams.get("archiviazione") === "pendente",
+    creditNoteDrafts,
+    storagePending,
   };
 }
 

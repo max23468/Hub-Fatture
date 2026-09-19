@@ -323,10 +323,7 @@ function CustomerDocuments({ customer }: { customer: CustomerDetail }) {
               : document.kind === "CREDIT_NOTE"
                 ? copy.customers.draftCreditNote
                 : copy.customers.draftInvoice;
-            const target =
-              document.kind === "CREDIT_NOTE"
-                ? `/documenti/${document.id}/nota`
-                : `/ordini/preparazione/${document.billing_case_id}`;
+            const target = `/documenti/${document.id}`;
             return (
               <li key={document.id}>
                 <span className="customer-linked-list__main">

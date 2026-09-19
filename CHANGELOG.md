@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.0
+
+- Ogni documento ha una propria pagina in `Documenti`: fatture, note di credito e documenti dello storico Aruba mostrano contenuto fiscale emesso (cliente, righe, totale, pagamento e trattamento IVA), stato Aruba e SdI con cronologia, file, e-mail al cliente, ordini e documenti collegati e registro attività. `Aggiorna stato Aruba`, l’import del file ufficiale e le azioni e-mail si trovano ora lì.
+- La riga di `Documenti` è un riepilogo compatto che apre il dettaglio, senza pannello espandibile; tornando all’elenco restano filtri, ordinamento e pagina. Aprire una fattura non porta più alla preparazione in `Ordini`.
+- La riga mostra gli esiti SdI (`Consegnato`, `Non consegnato`, `Scartato`, `In lavorazione SdI`, `Esito non noto`) invece di `Non disponibile`, e il colore dello stato li segue: verde per consegna e mancata consegna, avviso per scarto, invio rifiutato ed esiti incerti.
+- Una preparazione resta un luogo di lavoro solo finché richiede una decisione: prima dell’approvazione, con una trasmissione in attesa di conferma o con una nota di credito in bozza. Chiusa con una fattura emessa, il suo indirizzo porta al documento; senza fattura resta consultabile per motivo e riattivazione.
+- La pagina di un ordine già fatturato mostra i documenti emessi con il loro stato di trasmissione al posto della preparazione chiusa. Anche ricerca globale e cliente aprono il dettaglio del documento.
+- Le note di credito in bozza si rivedono e si approvano nella preparazione della fattura originaria, dove se ne conferma anche la trasmissione. La pagina separata della nota in `Documenti` diventa il dettaglio del documento.
+
 ## 1.5.1
 
 - Approvare o trasmettere una fattura non costringe più ad attendere una lunga sincronizzazione Aruba. La verifica chiesta al momento della conferma rilegge soltanto i documenti caricati su Aruba dall’ultima sincronizzazione, invece dell’ultima settimana, e parte già all’apertura della preparazione o dell’elenco da fatturare quando l’inventario ha più di tre minuti.

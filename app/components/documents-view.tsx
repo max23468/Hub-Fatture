@@ -1,32 +1,24 @@
-import {
-  ArrowRight,
-  Download,
-  FileCheck2,
-  FileText,
-  Mail,
-  ReceiptText,
-  RefreshCw,
-  Upload,
-} from "lucide-react";
-import { Form, Link, useNavigation } from "react-router";
+import { ArrowRight, FileText, Mail, ReceiptText } from "lucide-react";
+import { Form, Link, useLocation } from "react-router";
 
-import type { listOfficialArubaFiles } from "../../src/db/aruba.server.ts";
 import type {
   documentArchiveSummary,
   listDocuments,
 } from "../../src/db/document-archive.server.ts";
+import type {
+  DocumentListRow,
+  DocumentListSortKey,
+} from "../../src/db/document-archive-types.server.ts";
 import type { listEmailDeliveries } from "../../src/db/email.server.ts";
 import { copy, documentStateTone, documentTransmissionStatusLabel } from "../copy.it";
-import { date, dateTime, euros } from "../format";
+import { date, euros } from "../format";
 import { Pager } from "./pager";
 import { SortControlLink } from "./sortable-table";
 import type { SortState } from "../table-sort";
-import type { DocumentListSortKey } from "../../src/db/document-archive-types.server.ts";
 
 type DocumentPage = Awaited<ReturnType<typeof listDocuments>>;
 type DocumentRowData = DocumentPage["rows"][number];
 type DocumentSummary = Awaited<ReturnType<typeof documentArchiveSummary>>;
-type OfficialFile = Awaited<ReturnType<typeof listOfficialArubaFiles>>[number];
 type EmailDelivery = Awaited<ReturnType<typeof listEmailDeliveries>>[number];
 
 interface DocumentFiltersValue {
@@ -240,47 +232,7 @@ function DocumentFilters({
   );
 }
 
-function ImportForm({ csrfToken, documentId }: { csrfToken: string; documentId: string }) {
-  return (
-    <details className="document-import">
-      <summary>
-        <Upload aria-hidden="true" size={17} strokeWidth={1.8} />
-        {copy.documents.importOfficial}
-      </summary>
-      <Form className="document-import__form" encType="multipart/form-data" method="post">
-        <input name="csrf" type="hidden" value={csrfToken} />
-        <input name="documentId" type="hidden" value={documentId} />
-        <label>
-          {copy.documents.fileType}
-          <select name="fileKind">
-            {Object.entries(copy.documents.officialFileKind).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {copy.documents.officialFile}
-          <input name="file" required type="file" />
-        </label>
-        <button className="button button--secondary" type="submit">
-          {copy.documents.importAction}
-        </button>
-      </Form>
-    </details>
-  );
-}
-
-function documentTarget(document: DocumentRowData) {
-  if (document.kind === "CREDIT_NOTE") return `/documenti/${document.id}/nota`;
-  if (document.origin === "ARUBA_HISTORY") {
-    return document.historical_order_id ? `/ordini/${document.historical_order_id}` : null;
-  }
-  return `/ordini/preparazione/${document.billing_case_id}`;
-}
-
-function transmissionLabel(document: DocumentRowData) {
+export function transmissionLabel(document: DocumentListRow) {
   if (document.origin === "ARUBA_HISTORY") return copy.documents.arubaHistory;
   if (document.status === "DRAFT") return copy.documents.notApplicable;
   if (!document.aruba_status) return copy.documents.transmissionState.NOT_PREPARED;
@@ -288,488 +240,101 @@ function transmissionLabel(document: DocumentRowData) {
   if (document.aruba_batch_status === "DOCUMENT_ONLY") {
     return copy.documents.arubaBatchStatus.DOCUMENT_ONLY!;
   }
+  if (document.aruba_awaiting_confirmation) {
+    return copy.documents.arubaBatchStatus.AWAITING_CONFIRMATION!;
+  }
   return documentTransmissionStatusLabel(document.aruba_status);
 }
 
-function stateTone(document: DocumentRowData) {
+export function stateTone(document: DocumentListRow) {
   if (document.origin === "ARUBA_HISTORY") return "success";
   return documentStateTone(document.status, document.aruba_status);
 }
 
-function DocumentRowGrid({
-  document,
-  emailLabel,
-  label,
-  target,
-}: {
-  document: DocumentRowData;
-  emailLabel: string;
-  label: string;
-  target: string | null;
-}) {
+function DocumentRow({ document, email }: { document: DocumentRowData; email?: EmailDelivery }) {
+  const { search } = useLocation();
+  const label = document.fiscal_label ?? copy.documents.draftLabel(document.public_number);
+  const target = `/documenti/${document.id}`;
+  // Il ritorno dal dettaglio ripristina filtri, ordinamento e pagina dell'elenco.
+  const state = { from: search };
+  const emailLabel = email
+    ? (copy.documents.emailStatus[email.status] ?? copy.common.unavailable)
+    : copy.documents.emailNotPrepared;
   return (
-    <div className="document-row__grid">
-      <span className="document-row__main">
-        <small>{copy.documents.document}</small>
-        {target ? <Link to={target}>{label}</Link> : <strong>{label}</strong>}
-        <span>
-          {document.kind === "CREDIT_NOTE" ? copy.documents.creditNote : copy.documents.invoice}
-        </span>
-        {document.source_billing_case_id && document.source_public_number ? (
-          <Link to={`/ordini/preparazione/${document.source_billing_case_id}`}>
-            {copy.documents.sourcePreparation(document.source_public_number)}
+    <li className="document-row">
+      <div className="document-row__grid">
+        <span className="document-row__main">
+          <small>{copy.documents.document}</small>
+          <Link state={state} to={target}>
+            {label}
           </Link>
-        ) : null}
-      </span>
-      <span className="document-row__customer" title={document.customer_name}>
-        <small>{copy.documents.customer}</small>
-        <strong>{document.customer_name}</strong>
-      </span>
-      <span className="document-row__facts">
-        <span>
-          <small>{copy.documents.date}</small>
-          <time dateTime={document.document_date}>{date(document.document_date)}</time>
+          <span>
+            {document.kind === "CREDIT_NOTE" ? copy.documents.creditNote : copy.documents.invoice}
+          </span>
         </span>
-        <span>
-          <small>{copy.documents.total}</small>
-          <strong>{euros(document.total_amount)}</strong>
+        <span className="document-row__customer" title={document.customer_name}>
+          <small>{copy.documents.customer}</small>
+          <strong>{document.customer_name}</strong>
         </span>
-      </span>
-      <span className="document-row__state">
-        <small>{copy.documents.status}</small>
-        <span className={`document-state document-state--${stateTone(document)}`}>
-          {document.status === "APPROVED" ? copy.documents.approved : copy.documents.draft}
+        <span className="document-row__facts">
+          <span>
+            <small>{copy.documents.date}</small>
+            <time dateTime={document.document_date}>{date(document.document_date)}</time>
+          </span>
+          <span>
+            <small>{copy.documents.total}</small>
+            <strong>{euros(document.total_amount)}</strong>
+          </span>
         </span>
-        <span>{transmissionLabel(document)}</span>
-      </span>
-      <span className="document-row__email">
-        <small>{copy.documents.email}</small>
-        <span>
-          <Mail aria-hidden="true" size={16} strokeWidth={1.8} />
-          {emailLabel}
+        <span className="document-row__state">
+          <small>{copy.documents.status}</small>
+          <span className={`document-state document-state--${stateTone(document)}`}>
+            {document.status === "APPROVED" ? copy.documents.approved : copy.documents.draft}
+          </span>
+          <span>{transmissionLabel(document)}</span>
         </span>
-      </span>
-      {target ? (
+        <span className="document-row__email">
+          <small>{copy.documents.email}</small>
+          <span>
+            <Mail aria-hidden="true" size={16} strokeWidth={1.8} />
+            {emailLabel}
+          </span>
+        </span>
         <Link
           aria-label={copy.documents.openDocumentLabel(label)}
           className="dashboard-row-link document-row__action"
+          state={state}
           to={target}
         >
           <span>{copy.documents.openDocument}</span>
           <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
         </Link>
-      ) : null}
-    </div>
-  );
-}
-
-function DocumentFiles({
-  document,
-  fileCount,
-  officialFiles,
-}: {
-  document: DocumentRowData;
-  fileCount: number;
-  officialFiles: OfficialFile[];
-}) {
-  return (
-    <div className="document-file-list">
-      {document.xml_sha256 ? (
-        <a href={`/documenti/${document.id}/xml`}>
-          <FileCheck2 aria-hidden="true" size={17} strokeWidth={1.8} />
-          {copy.documents.downloadXml}
-        </a>
-      ) : null}
-      {officialFiles.map((file) => (
-        <a href={`/documenti/${document.id}/aruba/${file.id}`} key={file.id}>
-          <FileText aria-hidden="true" size={17} strokeWidth={1.8} />
-          <span>
-            {copy.documents.officialFileKind[file.kind]}
-            <small>{dateTime(file.imported_at)}</small>
-          </span>
-        </a>
-      ))}
-      {!fileCount ? <p>{copy.documents.noOfficialFiles}</p> : null}
-    </div>
-  );
-}
-
-function DocumentEmailActions({
-  canPrepareRedactedEmail,
-  canRetryEmail,
-  csrfToken,
-  documentId,
-  email,
-  emailRedacted,
-}: {
-  canPrepareRedactedEmail: boolean;
-  canRetryEmail: boolean;
-  csrfToken: string;
-  documentId: string;
-  email?: EmailDelivery;
-  emailRedacted: boolean;
-}) {
-  return (
-    <>
-      {email?.last_error_code === "EMAIL_DELIVERY_UNCERTAIN" ? (
-        <p className="warning">{copy.documents.emailUncertain}</p>
-      ) : null}
-      {canPrepareRedactedEmail ? (
-        <Form method="post">
-          <input name="csrf" type="hidden" value={csrfToken} />
-          <input name="intent" type="hidden" value="retry-customer-email" />
-          <input name="documentId" type="hidden" value={documentId} />
-          <label>
-            {copy.documents.newEmailRecipient}
-            <input name="newRecipient" type="email" maxLength={256} required />
-          </label>
-          <p className="field-help">{copy.documents.emailRedacted}</p>
-          <button className="button button--secondary" type="submit">
-            <RefreshCw aria-hidden="true" size={17} strokeWidth={1.8} />
-            {copy.documents.prepareNewDelivery}
-          </button>
-        </Form>
-      ) : emailRedacted ? (
-        <p className="field-help">{copy.documents.emailRedactedUnavailable}</p>
-      ) : null}
-      {canRetryEmail ? (
-        <Form method="post">
-          <input name="csrf" type="hidden" value={csrfToken} />
-          <input name="intent" type="hidden" value="retry-customer-email" />
-          <input name="documentId" type="hidden" value={documentId} />
-          {email?.last_error_code === "EMAIL_DELIVERY_UNCERTAIN" ? (
-            <label className="checkbox-row">
-              <input name="confirmUncertain" required type="checkbox" value="yes" />
-              {copy.documents.emailUncertainConfirmed}
-            </label>
-          ) : null}
-          <button className="button button--secondary" type="submit">
-            <RefreshCw aria-hidden="true" size={17} strokeWidth={1.8} />
-            {copy.documents.prepareResend}
-          </button>
-        </Form>
-      ) : null}
-    </>
-  );
-}
-
-function DocumentTools({
-  capabilities,
-  csrfToken,
-  document,
-  email,
-  fileCount,
-  officialFiles,
-}: {
-  capabilities: {
-    canImportFile: boolean;
-    canPrepareRedactedEmail: boolean;
-    canRetryEmail: boolean;
-    canRefreshAruba: boolean;
-    emailRedacted: boolean;
-  };
-  csrfToken: string;
-  document: DocumentRowData;
-  email?: EmailDelivery;
-  fileCount: number;
-  officialFiles: OfficialFile[];
-}) {
-  const { canImportFile, canPrepareRedactedEmail, canRetryEmail, canRefreshAruba, emailRedacted } =
-    capabilities;
-  const navigation = useNavigation();
-  const refreshPending =
-    navigation.formData?.get("intent") === "refresh-aruba-status" &&
-    navigation.formData.get("documentId") === document.id;
-  const hasArubaStatus = Boolean(document.aruba_batch_id && document.aruba_status);
-  return (
-    <details className="document-row__tools">
-      <summary>
-        <span>
-          <Download aria-hidden="true" size={17} strokeWidth={1.8} />
-          {hasArubaStatus ? copy.documents.arubaDetail : copy.documents.filesAndActions}
-        </span>
-        <small>
-          {hasArubaStatus ? arubaStatusLabel(document) : copy.documents.availableFiles(fileCount)}
-        </small>
-      </summary>
-      <div className="document-row__tools-content">
-        {hasArubaStatus ? <DocumentArubaStatus document={document} /> : null}
-        <div className="document-resource-grid">
-          <section aria-labelledby={`document-files-${document.id}`}>
-            <h3 id={`document-files-${document.id}`}>{copy.documents.availableFiles(fileCount)}</h3>
-            <DocumentFiles
-              document={document}
-              fileCount={fileCount}
-              officialFiles={officialFiles}
-            />
-          </section>
-          <section aria-labelledby={`document-actions-${document.id}`}>
-            <h3 id={`document-actions-${document.id}`}>{copy.documents.arubaActions}</h3>
-            <div className="document-tool-actions">
-              {document.aruba_awaiting_confirmation ? (
-                <Link className="button" to={`/ordini/preparazione/${document.billing_case_id}`}>
-                  <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
-                  {copy.documents.openPreparationToTransmit}
-                </Link>
-              ) : null}
-              {canRefreshAruba ? (
-                <Form method="post">
-                  <input name="csrf" type="hidden" value={csrfToken} />
-                  <input name="intent" type="hidden" value="refresh-aruba-status" />
-                  <input name="documentId" type="hidden" value={document.id} />
-                  <button
-                    className="button button--secondary"
-                    disabled={refreshPending}
-                    type="submit"
-                  >
-                    <RefreshCw aria-hidden="true" size={17} strokeWidth={1.8} />
-                    {refreshPending
-                      ? copy.documents.refreshingArubaStatus
-                      : copy.documents.refreshArubaStatus}
-                  </button>
-                </Form>
-              ) : null}
-              {canImportFile ? <ImportForm csrfToken={csrfToken} documentId={document.id} /> : null}
-              <DocumentEmailActions
-                canPrepareRedactedEmail={canPrepareRedactedEmail}
-                canRetryEmail={canRetryEmail}
-                csrfToken={csrfToken}
-                documentId={document.id}
-                email={email}
-                emailRedacted={emailRedacted}
-              />
-            </div>
-          </section>
-        </div>
       </div>
-    </details>
-  );
-}
-
-function arubaStatusLabel(document: DocumentRowData) {
-  if (document.aruba_awaiting_confirmation) {
-    return copy.documents.arubaBatchStatus.AWAITING_CONFIRMATION ?? copy.common.unavailable;
-  }
-  if (document.aruba_batch_status === "DOCUMENT_ONLY") {
-    return copy.documents.arubaBatchStatus.DOCUMENT_ONLY ?? copy.common.unavailable;
-  }
-  return document.aruba_status
-    ? (copy.documents.arubaDocumentStatus[document.aruba_status] ?? document.aruba_status)
-    : copy.common.unavailable;
-}
-
-function DocumentArubaStatus({ document }: { document: DocumentRowData }) {
-  const status = arubaStatusLabel(document);
-  const hasIdentifiers = Boolean(document.provider_filename || document.provider_sdi_id);
-  return (
-    <section className="document-aruba-status" aria-labelledby={`aruba-status-${document.id}`}>
-      <header>
-        <div>
-          <p>{copy.documents.currentArubaStatus}</p>
-          <h3 id={`aruba-status-${document.id}`}>{status}</h3>
-        </div>
-        <dl>
-          <div>
-            <dt>{copy.documents.arubaLastStatusChange}</dt>
-            <dd>
-              {document.remote_status_changed_at
-                ? dateTime(document.remote_status_changed_at)
-                : copy.common.unavailable}
-            </dd>
-          </div>
-          <div>
-            <dt>{copy.documents.arubaLastCheck}</dt>
-            <dd>
-              {document.remote_updated_at
-                ? dateTime(document.remote_updated_at)
-                : copy.common.unavailable}
-            </dd>
-          </div>
-        </dl>
-      </header>
-      <div className="document-aruba-status__body">
-        <section aria-labelledby={`aruba-identifiers-${document.id}`}>
-          <h4 id={`aruba-identifiers-${document.id}`}>{copy.documents.arubaIdentifiers}</h4>
-          {hasIdentifiers ? (
-            <dl className="document-aruba-identifiers">
-              {document.provider_filename ? (
-                <div>
-                  <dt>{copy.documents.providerFilename}</dt>
-                  <dd>{document.provider_filename}</dd>
-                </div>
-              ) : null}
-              {document.provider_sdi_id ? (
-                <div>
-                  <dt>{copy.documents.sdiId}</dt>
-                  <dd>{document.provider_sdi_id}</dd>
-                </div>
-              ) : null}
-            </dl>
-          ) : (
-            <p>{copy.documents.arubaNoIdentifiers}</p>
-          )}
-        </section>
-        <section aria-labelledby={`aruba-timeline-${document.id}`}>
-          <h4 id={`aruba-timeline-${document.id}`}>{copy.documents.arubaTimeline}</h4>
-          {document.aruba_timeline.length ? (
-            <ol className="document-aruba-timeline">
-              {document.aruba_timeline.map((event) => (
-                <li key={event.event_key}>
-                  <span aria-hidden="true" />
-                  <div>
-                    <strong>
-                      {copy.documents.arubaDocumentStatus[event.status] ?? event.status}
-                    </strong>
-                    <small>
-                      {dateTime(event.observed_at)} ·{" "}
-                      {copy.documents.arubaSourceLabels[event.source]}
-                    </small>
-                    {event.detail && event.detail !== event.status ? <p>{event.detail}</p> : null}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p>{copy.documents.arubaTimelineEmpty}</p>
-          )}
-        </section>
-      </div>
-    </section>
-  );
-}
-
-function documentRowState({
-  canApprove,
-  document,
-  email,
-  emailEnabled,
-  officialFiles,
-}: {
-  canApprove: boolean;
-  document: DocumentRowData;
-  email?: EmailDelivery;
-  emailEnabled: boolean;
-  officialFiles: OfficialFile[];
-}) {
-  const emailRedacted = Boolean(email?.requires_explicit_recipient);
-  const canPrepareRedactedEmail = Boolean(emailRedacted && emailEnabled && canApprove);
-  const canRetryEmail = Boolean(
-    emailEnabled && email && email.status !== "PENDING" && !emailRedacted && canApprove,
-  );
-  const canImportFile = Boolean(canApprove && document.aruba_batch_id && document.xml_sha256);
-  const canRefreshAruba = Boolean(
-    canApprove &&
-    document.aruba_batch_id &&
-    document.aruba_status &&
-    ["ARUBA_ACCEPTED", "SDI_PROCESSING", "SUBMITTED", "UNKNOWN", "UNKNOWN_REMOTE_STATE"].includes(
-      document.aruba_status,
-    ),
-  );
-  const fileCount = Number(Boolean(document.xml_sha256)) + officialFiles.length;
-  return {
-    canImportFile,
-    canPrepareRedactedEmail,
-    canRetryEmail,
-    canRefreshAruba,
-    emailLabel: email
-      ? (copy.documents.emailStatus[email.status] ?? copy.common.unavailable)
-      : copy.documents.emailNotPrepared,
-    emailRedacted,
-    fileCount,
-    hasTools: Boolean(
-      document.xml_sha256 ||
-      officialFiles.length ||
-      canRetryEmail ||
-      canImportFile ||
-      canRefreshAruba ||
-      document.aruba_awaiting_confirmation ||
-      emailRedacted,
-    ),
-    label: document.fiscal_label ?? copy.documents.draftLabel(document.public_number),
-    target: documentTarget(document),
-  };
-}
-
-function DocumentRow({
-  canApprove,
-  csrfToken,
-  document,
-  email,
-  emailEnabled,
-  officialFiles,
-}: {
-  canApprove: boolean;
-  csrfToken: string;
-  document: DocumentRowData;
-  email?: EmailDelivery;
-  emailEnabled: boolean;
-  officialFiles: OfficialFile[];
-}) {
-  const state = documentRowState({
-    canApprove,
-    document,
-    email,
-    emailEnabled,
-    officialFiles,
-  });
-
-  return (
-    <li className="document-row">
-      <DocumentRowGrid
-        document={document}
-        emailLabel={state.emailLabel}
-        label={state.label}
-        target={state.target}
-      />
-      {state.hasTools ? (
-        <DocumentTools
-          capabilities={state}
-          csrfToken={csrfToken}
-          document={document}
-          email={email}
-          fileCount={state.fileCount}
-          officialFiles={officialFiles}
-        />
-      ) : null}
     </li>
   );
 }
 
 export function DocumentsView({
-  canApprove,
-  csrfToken,
   documents,
   emailDeliveries,
-  emailEnabled,
   filters,
-  officialFiles,
   page,
   summary,
   sort,
   view,
 }: {
-  canApprove: boolean;
-  csrfToken: string;
   documents: DocumentPage;
   emailDeliveries: EmailDelivery[];
-  emailEnabled: boolean;
   filters: DocumentFiltersValue;
-  officialFiles: OfficialFile[];
   page: number;
   summary: DocumentSummary;
   sort: SortState<DocumentListSortKey>;
   view: string;
 }) {
-  const officialFilesByDocument = new Map<string, OfficialFile[]>();
   const emailByDocument = new Map<string, EmailDelivery>();
   for (const delivery of emailDeliveries) {
     if (!emailByDocument.has(delivery.document_id))
       emailByDocument.set(delivery.document_id, delivery);
-  }
-  for (const file of officialFiles) {
-    const current = officialFilesByDocument.get(file.document_id) ?? [];
-    current.push(file);
-    officialFilesByDocument.set(file.document_id, current);
   }
 
   return (
@@ -843,13 +408,9 @@ export function DocumentsView({
             <ul className="document-list">
               {documents.rows.map((document) => (
                 <DocumentRow
-                  canApprove={canApprove}
-                  csrfToken={csrfToken}
                   document={document}
                   email={emailByDocument.get(document.id)}
-                  emailEnabled={emailEnabled}
                   key={document.id}
-                  officialFiles={officialFilesByDocument.get(document.id) ?? []}
                 />
               ))}
             </ul>

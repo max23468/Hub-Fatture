@@ -29,6 +29,7 @@
 | [ADR canary Aruba](adr/0004-permesso-monouso-canary-aruba.md)                        | Decisione storica sul permesso monouso                    | Superato    | Sì             |
 | [ADR base applicativa Debian 13](adr/0005-base-applicativa-debian-13-trixie-slim.md) | Base container, aggiornamenti e rollback applicativo      | Approvato   | Sì             |
 | [ADR primo invio ordinario](adr/0006-primo-invio-aruba-ordinario.md)                 | Primo effetto fiscale reale nel normale flusso operativo  | Approvato   | Sì             |
+| [ADR Documenti e preparazioni](adr/0007-documenti-e-preparazioni.md)                 | Consultazione in Documenti, lavoro in preparazione        | Approvato   | Sì             |
 | [Piano integrazione API Aruba](plans/aruba-api-integration.md)                       | Architettura API, flussi, gate e milestone                | Approvato   | Sì             |
 | [Piano invio e monitoraggio Aruba](plans/aruba-outbound-monitoring.md)               | Refresh, ricerca, invio TD01 e monitoraggio SdI           | Approvato   | Sì             |
 | [Procedura manuale Aruba](runbooks/aruba-manual.md)                                  | Export, upload manuale, readback e import                 | Corrente    | Sì             |

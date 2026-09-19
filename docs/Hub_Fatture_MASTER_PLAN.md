@@ -425,7 +425,7 @@ Queste alternative sono riportate per evitare che un agente futuro le reintroduc
 
 ### 5.1 Raggruppamento di fatturazione interno
 
-Il **raggruppamento di fatturazione interno** è il contenitore tecnico del ciclo documentale. Nell'interfaccia non costituisce una sezione autonoma: si apre dagli ordini come **Preparazione fattura** e, dopo l'approvazione, il risultato vive in **Documenti**. Collega:
+Il **raggruppamento di fatturazione interno** è il contenitore tecnico del ciclo documentale. Nell'interfaccia non costituisce una sezione autonoma: si apre dagli ordini come **Preparazione fattura** e, dopo l'approvazione, il risultato vive in **Documenti**. La preparazione è un luogo di lavoro soltanto finché è **aperta**, cioè finché richiede una decisione: negli stati modificabili, con una trasmissione in attesa di conferma o con una nota di credito in bozza. L'attesa di un esito SdI non la tiene aperta; chiusa con una fattura emessa, il suo indirizzo porta al documento. Collega:
 
 - uno o più ordini Shopify/eBay;
 - la bozza e la fattura emessa;
@@ -1412,7 +1412,7 @@ riconciliare non cambiano questo stato e appartengono alla coda `Controlli`.
 - Filtri per piattaforma, stato, data, trigger, pagamento.
 - Ricerca per ID ordine, cliente, e-mail, codice fiscale/P.IVA.
 - Vista del dato originale e normalizzato.
-- Collegamento alla Preparazione fattura.
+- Collegamento alla Preparazione fattura finché è aperta; dopo, collegamento ai documenti emessi che coprono l'ordine con il loro stato di trasmissione.
 - Documento Aruba collegato, stato SdI e freschezza del readback quando disponibili.
 - Un match su un solo ordine di una preparazione multi-ordine invalida atomicamente la bozza materializzata, esclude soltanto l'ordine coperto e rigenera una preparazione con i residui ancora fatturabili; un errore ripristina l'intera transazione.
 - La chiusura e la separazione avvengono soltanto dopo `DELIVERED` o `NOT_DELIVERED`: uno stato intermedio sospende la preparazione e `REJECTED` mantiene l'ordine disponibile per revisione/riedizione.
@@ -1434,7 +1434,7 @@ Una stessa identità fiscale riconciliata fra Shopify ed eBay compare una sola v
 
 ### 13.5 Preparazione fattura
 
-È la pagina di lavoro aperta da Ordini o dal controllo collegato. Non è una destinazione della navigazione principale e il nome tecnico `billing_case` non compare nel frontend.
+È la pagina di lavoro aperta da Ordini o dal controllo collegato. Non è una destinazione della navigazione principale e il nome tecnico `billing_case` non compare nel frontend. Esiste come luogo di lavoro solo finché è aperta: una preparazione chiusa con fattura emessa rimanda al documento, mentre senza fattura (`Non trasmettere` o corrispettivo) resta consultabile per motivo e riattivazione. Una nota di credito in bozza si rivede, si approva e se ne conferma la trasmissione nella preparazione della fattura originaria.
 
 - Riepilogo con stato, cliente, data, ordini, totale e anomalie.
 - Timeline e audit.
@@ -1487,7 +1487,7 @@ La sezione riunisce fatture, note di credito e documenti nei diversi stati di tr
 
 La vista interna `Inventario Aruba` mostra in modo neutro i documenti osservati, con origine, stato remoto, ultimo aggiornamento e stato del collegamento, senza creare ordini locali. Un documento senza riferimenti ordine espliciti né match Shopify/eBay compatibili resta visibile per l’anti-duplicazione ma non è una verifica bloccante. Riferimenti incompatibili, match potenziali, ambiguità, conflitti, file ufficiali mancanti ed errori generano un solo controllo e la riga dell'inventario rimanda a quello.
 
-`Documenti` è archivio e monitoraggio: mostra stato, identificativi, cronologia, file e azioni di lettura, ma nessuna azione che avvii o autorizzi una trasmissione. Le conferme di invio appartengono alla preparazione, raggiungibile dalla riga del documento quando una trasmissione attende conferma.
+`Documenti` è archivio e monitoraggio: mostra stato, identificativi, cronologia, file e azioni di lettura, ma nessuna azione che avvii o autorizzi una trasmissione. Ogni documento, fattura, nota di credito o documento dello storico Aruba, ha una pagina di dettaglio in `Documenti` con contenuto fiscale emesso, trasmissione, file, e-mail al cliente, collegamenti a ordini e documenti correlati e registro attività. La riga dell'elenco è un riepilogo compatto che apre il dettaglio; tornando all'elenco filtri, ordinamento e pagina restano quelli di partenza. Le conferme di invio e l'approvazione delle note di credito appartengono alla preparazione, raggiungibile dal dettaglio del documento quando è aperta.
 
 La ricerca locale dei documenti filtra tipo, stato, origine, cliente e intervallo date senza chiamare
 Aruba. Una verifica remota esplicita offre i filtri ufficiali entro finestre di 48 ore e un lookup
@@ -1503,7 +1503,7 @@ Per le note di credito mostrare:
 - Residuo accreditabile.
 - Righe e totale.
 - Anomalie di riconciliazione.
-- Anteprima e approvazione separata.
+- Anteprima e approvazione nella preparazione della fattura originaria.
 
 ### 13.8 Controlli
 

@@ -333,15 +333,15 @@ test("le credenziali Aruba collegate restano compatte e modificabili in sicurezz
   await page.goto("/documenti");
   await page.mouse.move(1430, 10);
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  const arubaDetails = page.getByText("Stato e cronologia Aruba", { exact: true });
-  await expect(arubaDetails).toBeVisible();
-  await arubaDetails.click();
+  const monitoredRow = page.locator(".document-row").filter({ hasText: "In lavorazione SdI" });
+  await expect(monitoredRow).toBeVisible();
+  await monitoredRow.getByRole("link", { name: /^Apri / }).click();
   await expect(page.getByRole("heading", { name: "In lavorazione SdI" })).toBeVisible();
   await expect(page.getByText("IT00000000000_UI.xml", { exact: true })).toBeVisible();
   await expect(page.getByText("SDI-UI-42", { exact: true })).toBeVisible();
   await expect(page.locator(".document-aruba-timeline li")).toHaveCount(3);
   await expect(page.getByRole("button", { name: "Aggiorna stato Aruba" })).toBeVisible();
-  await page.locator(".document-row__tools").screenshot({
+  await page.locator(".document-aruba-status").screenshot({
     path: "/tmp/hub-fatture-phase-f-timeline-1440.png",
   });
   await page.close();
