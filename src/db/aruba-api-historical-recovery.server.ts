@@ -3,7 +3,7 @@ import { normalizedMatchText } from "../aruba-inbound.ts";
 import { fiscalNumberLabel } from "../fiscal-number.ts";
 import type { ArubaApiInvoicePage } from "../integrations/aruba-api.server.ts";
 import type { ArubaSyncRunRow } from "./aruba-api-context.server.ts";
-import { arubaTransmissionAbsenceSql } from "./aruba-transmission-absence.server.ts";
+import { arubaTransmissionAbsenceSql } from "./aruba-transmission-absence-sql.server.ts";
 import { arubaActionableCandidateSql } from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
 

@@ -12,8 +12,9 @@ import { arubaActionableCandidateSql } from "./billing-case-sql.server.ts";
 import {
   arubaSubmissionTransmissionAbsenceSql,
   arubaTransmissionAbsenceSql,
-} from "./aruba-transmission-absence.server.ts";
+} from "./aruba-transmission-absence-sql.server.ts";
 import type { ClaimedJob, ConnectorActor, JobType } from "./connector-types.server.ts";
+import { requeueUntransmittedInvoices } from "./rejected-invoice-requeue.server.ts";
 
 const manuallyRetryableJobTypes: JobType[] = [
   "shopify_sync_orders",
@@ -189,6 +190,8 @@ export async function scheduleDueSyncs() {
        ON CONFLICT DO NOTHING`,
     );
   });
+  // Una fattura dichiarata mai trasmessa non lascia i suoi ordini fatturati.
+  await withTransaction((client) => requeueUntransmittedInvoices(client, "aruba-untransmitted"));
 }
 
 export async function scheduleRetention() {

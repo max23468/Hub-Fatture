@@ -1,7 +1,10 @@
 import type pg from "pg";
 
 import { writeAudit } from "./audit.server.ts";
-import { orderReissuableAfterRejectedInvoiceSql } from "./billing-case-sql.server.ts";
+import {
+  ineffectiveSubmissionSql,
+  orderReissuableAfterRejectedInvoiceSql,
+} from "./billing-case-sql.server.ts";
 import { groupOrder } from "./order-grouping.server.ts";
 
 interface RejectedOrder {
@@ -14,15 +17,18 @@ interface RejectedOrder {
   document_id: string;
 }
 
+type RequeueAction = "INVOICE_REJECTED_REQUEUED" | "INVOICE_NOT_TRANSMITTED_REQUEUED";
+
 /**
- * Riporta in preparazione gli ordini soltanto quando il readback API ha consolidato
- * lo scarto di tutte le submission della fattura. Il documento approvato e il suo
- * numero restano immutabili; cambia esclusivamente l'appartenenza operativa dell'ordine.
+ * Riporta in preparazione gli ordini soltanto quando nessuna submission della fattura l'ha
+ * emessa: tutte scartate da SdI o dichiarate dal titolare mai trasmesse. Il documento approvato
+ * e il suo numero restano immutabili; cambia esclusivamente l'appartenenza operativa dell'ordine.
  */
-export async function requeueAuthoritativelyRejectedInvoice(
+export async function requeueIneffectiveInvoice(
   client: pg.PoolClient,
   submissionId: string,
   actor: { requestId: string },
+  action: RequeueAction = "INVOICE_REJECTED_REQUEUED",
 ) {
   const identity = await client.query<{ document_id: string }>(
     `SELECT document_id::text FROM aruba_submissions WHERE id = $1`,
@@ -49,7 +55,7 @@ export async function requeueAuthoritativelyRejectedInvoice(
       AND document_orders.document_kind = 'INVOICE'
      JOIN orders ON orders.id = document_orders.order_id
      WHERE rejected_submission.id = $1
-       AND rejected_submission.status = 'REJECTED'
+       AND ${ineffectiveSubmissionSql("rejected_submission")}
        AND documents.kind = 'INVOICE'
        AND documents.status = 'APPROVED'
        AND orders.billing_case_id = documents.billing_case_id
@@ -58,7 +64,7 @@ export async function requeueAuthoritativelyRejectedInvoice(
        AND NOT EXISTS (
          SELECT 1 FROM aruba_submissions AS other_submission
          WHERE other_submission.document_id = documents.id
-           AND other_submission.status <> 'REJECTED'
+           AND NOT ${ineffectiveSubmissionSql("other_submission")}
        )
      ORDER BY orders.id
      FOR UPDATE OF rejected_submission, orders`,
@@ -94,7 +100,7 @@ export async function requeueAuthoritativelyRejectedInvoice(
   if (billingCaseIds.length) {
     await writeAudit(client, {
       actorType: "SYSTEM",
-      action: "INVOICE_REJECTED_REQUEUED",
+      action,
       eventClass: "CRITICAL",
       entityType: "DOCUMENT",
       entityId: rejected.rows[0]!.document_id,
@@ -105,4 +111,40 @@ export async function requeueAuthoritativelyRejectedInvoice(
     });
   }
   return { affectedCount: billingCaseIds.length, billingCaseIds };
+}
+
+/**
+ * Recupera le fatture dichiarate mai trasmesse i cui ordini risultano ancora fatturati, per
+ * esempio quando la dichiarazione precede questo comportamento. Ogni fattura si riporta
+ * in preparazione una sola volta: dopo, i suoi ordini non sono più nella preparazione originaria.
+ */
+export async function requeueUntransmittedInvoices(client: pg.PoolClient, requestId: string) {
+  const pending = await client.query<{ submission_id: string }>(
+    `SELECT DISTINCT ON (documents.id) submissions.id::text AS submission_id
+     FROM aruba_submissions AS submissions
+     JOIN documents ON documents.id = submissions.document_id
+     JOIN document_orders
+       ON document_orders.document_id = documents.id
+      AND document_orders.document_kind = 'INVOICE'
+     JOIN orders ON orders.id = document_orders.order_id
+     WHERE submissions.status <> 'REJECTED'
+       AND ${ineffectiveSubmissionSql("submissions")}
+       AND documents.kind = 'INVOICE' AND documents.status = 'APPROVED'
+       AND orders.billing_case_id = documents.billing_case_id
+       AND orders.trigger_status = 'INVOICED'
+     ORDER BY documents.id, submissions.id`,
+  );
+  let affectedCount = 0;
+  for (const row of pending.rows) {
+    // Una sola transazione serializza il raggruppamento, come nello scarto.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    const requeued = await requeueIneffectiveInvoice(
+      client,
+      row.submission_id,
+      { requestId },
+      "INVOICE_NOT_TRANSMITTED_REQUEUED",
+    );
+    affectedCount += requeued.affectedCount;
+  }
+  return affectedCount;
 }

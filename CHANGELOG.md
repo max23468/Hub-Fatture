@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.1
+
+- Una fattura dichiarata mai trasmessa a SdI non conta più come emessa: i suoi ordini tornano da fatturare in una nuova preparazione, come dopo uno scarto, e il vincolo che impedisce due fatture per lo stesso ordine la ignora. In `Documenti` il documento mostra `Mai trasmesso a SdI`. Le dichiarazioni già registrate vengono recuperate automaticamente.
+- In `Ordini`, la vista `Da fatturare` non mostra più `Verifica Aruba aggiornata.` quando l’inventario Aruba è in ordine: compare un avviso soltanto se la verifica è in corso, da aggiornare o bloccata.
+- Nella preparazione, i dati fiscali del cliente mostrano soltanto quelli esistenti, da correggere direttamente; il campo vuoto `Nuovo dato fiscale` compare solo quando non ne esiste nessuno.
+- Motivazioni, giustificazioni e riferimenti richiesti nelle decisioni non hanno più una lunghezza minima di 10 o 20 caratteri: basta che non siano vuoti.
+
 ## 1.6.0
 
 - Ogni documento ha una propria pagina in `Documenti`: fatture, note di credito e documenti dello storico Aruba mostrano contenuto fiscale emesso (cliente, righe, totale, pagamento e trattamento IVA), stato Aruba e SdI con cronologia, file, e-mail al cliente, ordini e documenti collegati e registro attività. `Aggiorna stato Aruba`, l’import del file ufficiale e le azioni e-mail si trovano ora lì.

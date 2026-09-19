@@ -36,13 +36,13 @@ import {
   storedApiEnvironment,
 } from "./aruba-api-context.server.ts";
 import { scheduleArubaEmissionEffects } from "./aruba-emission-effects.server.ts";
-import { requeueAuthoritativelyRejectedInvoice } from "./rejected-invoice-requeue.server.ts";
+import { requeueIneffectiveInvoice } from "./rejected-invoice-requeue.server.ts";
 import {
   refreshArubaApiBatchStatus,
   type ArubaOutboundActor,
 } from "./aruba-api-outbound-shared.server.ts";
 import { arubaApiCooldownDelayMs, waitForArubaApiReadSlot } from "./aruba-api-traffic.server.ts";
-import { arubaSubmissionTransmissionAbsenceSql } from "./aruba-transmission-absence.server.ts";
+import { arubaSubmissionTransmissionAbsenceSql } from "./aruba-transmission-absence-sql.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { assertJobLease, renewLockedJobLease } from "./connector-jobs.server.ts";
 import type { ClaimedJob } from "./connector-types.server.ts";
@@ -317,7 +317,7 @@ async function runSubmissionReadback(job: ClaimedJob, submissionId: string) {
         await scheduleArubaEmissionEffects(client, context.document_id);
       }
       if (transition === "ADVANCE" && committedStatus === "REJECTED") {
-        await requeueAuthoritativelyRejectedInvoice(client, submissionId, {
+        await requeueIneffectiveInvoice(client, submissionId, {
           requestId: `aruba-readback:${job.id}`,
         });
       }

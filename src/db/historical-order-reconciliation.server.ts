@@ -36,7 +36,7 @@ import { pendingPaymentSql } from "./billing-case-sql.server.ts";
 
 const historicalReconciliationSchema = z.object({
   outcome: z.enum(["ALREADY_INVOICED", "NOT_INVOICED"]),
-  reference: z.string().trim().min(10).max(500),
+  reference: z.string().trim().min(1).max(500),
   manualReviewApproved: z.boolean().default(false),
 });
 
