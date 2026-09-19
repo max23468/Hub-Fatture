@@ -171,7 +171,6 @@ function ArubaExceptionalEvidenceFields({ kind }: { kind: string }) {
           <textarea
             name="reason"
             rows={3}
-            minLength={10}
             maxLength={500}
             required
             placeholder={copy.controls.amountMismatchReasonPlaceholder}
@@ -192,7 +191,6 @@ function ArubaExceptionalEvidenceFields({ kind }: { kind: string }) {
           <textarea
             name="reason"
             rows={3}
-            minLength={10}
             maxLength={500}
             required
             placeholder={copy.controls.externalEvidenceReasonPlaceholder}
@@ -354,7 +352,7 @@ function ArubaIdentityResolutionForm({
       ) : null}
       <label className="control-note">
         Motivazione e prove verificate
-        <textarea name="reason" minLength={20} maxLength={500} required />
+        <textarea name="reason" maxLength={500} required />
       </label>
       <label className="control-action-form__confirmation">
         <input type="checkbox" name="confirmation" value="confirmed" required />
@@ -500,7 +498,7 @@ function ControlSourceAction({
       <p>{copy.controls.transmissionAbsenceHelp}</p>
       <label className="control-note">
         {copy.controls.transmissionAbsenceReason}
-        <textarea name="reason" minLength={20} maxLength={500} required />
+        <textarea name="reason" maxLength={500} required />
       </label>
       <label className="control-action-form__confirmation">
         <input type="checkbox" name="confirmation" value="confirmed" required />

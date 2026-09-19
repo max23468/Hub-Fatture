@@ -1,3 +1,5 @@
+import { arubaSubmissionTransmissionAbsenceSql } from "./aruba-transmission-absence-sql.server.ts";
+
 export const documentRowsSql = `
   SELECT documents.id, documents.billing_case_id, billing_cases.public_number,
          documents.source_billing_case_id,
@@ -29,7 +31,9 @@ export const documentRowsSql = `
   LEFT JOIN billing_cases AS source_billing_cases
     ON source_billing_cases.id = documents.source_billing_case_id
   LEFT JOIN LATERAL (
-    SELECT aruba_batches.id, coalesce(submissions.status, aruba_batches.status) AS status,
+    SELECT aruba_batches.id,
+           CASE WHEN ${arubaSubmissionTransmissionAbsenceSql("submissions")} THEN 'NOT_TRANSMITTED'
+                ELSE coalesce(submissions.status, aruba_batches.status) END AS status,
            aruba_batches.status AS batch_status,
            aruba_batches.transport = 'API' AND aruba_batches.status = 'AWAITING_CONFIRMATION'
              AS awaiting_confirmation,

@@ -1,9 +1,7 @@
 import type { ArubaRemoteStatus } from "../aruba-inbound.ts";
 import { arubaBlockingMatchPredicate } from "./aruba-inventory-health.server.ts";
-import {
-  arubaTransmissionAbsenceEligibleSql,
-  arubaTransmissionAbsenceSql,
-} from "./aruba-transmission-absence.server.ts";
+import { arubaTransmissionAbsenceEligibleSql } from "./aruba-transmission-absence.server.ts";
+import { arubaTransmissionAbsenceSql } from "./aruba-transmission-absence-sql.server.ts";
 import {
   arubaActionableCandidateSql,
   arubaAmountMismatchCandidateSql,

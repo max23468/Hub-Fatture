@@ -906,7 +906,7 @@ function OrdersNotices({ data }: { data: OrdersPageData }) {
           ) : null}
         </div>
       ) : null}
-      {view === "fatturare" && inventoryApprovalState ? (
+      {view === "fatturare" && inventoryApprovalState && inventoryApprovalState !== "READY" ? (
         <p className={inventoryApprovalState === "BLOCKED" ? "warning" : "notice"} role="status">
           {copy.document.inventoryApprovalStates[inventoryApprovalState]}
         </p>

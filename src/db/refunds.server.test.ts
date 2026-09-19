@@ -892,6 +892,10 @@ test(
       assert.ok(projection?.xml.includes("<TipoDocumento>TD04</TipoDocumento>"));
       assert.ok(projection?.xml.includes("<DatiFattureCollegate>"));
       assert.equal(projection?.comparison.recipient[0]?.field, "identity");
+      assert.match(
+        projection?.comparison.lines[0]?.draft ?? "",
+        /^Rimborso Ordine Shopify #CREDIT/,
+      );
       assert.match(projection?.comparison.lines[0]?.source ?? "", /profilo shop/);
       assert.match(projection?.comparison.lines[0]?.source ?? "", /rimborso refund-1/);
       await client.query(

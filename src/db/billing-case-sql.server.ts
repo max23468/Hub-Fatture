@@ -1,4 +1,5 @@
 import { PAYMENT_ROUNDING_TOLERANCE_CENTS } from "../order-payment-reconciliation.ts";
+import { arubaSubmissionTransmissionAbsenceSql } from "./aruba-transmission-absence-sql.server.ts";
 
 /**
  * Frammenti SQL delle regole che il lock e la lettura devono applicare allo stesso modo.
@@ -101,9 +102,17 @@ export const billingCasePendingPaymentSql = (alias = "billing_cases") => `EXISTS
 )`;
 
 /**
- * Una fattura approvata è efficace finché non è provato che ogni sua trasmissione
- * Aruba sia stata scartata. L'assenza di submission copre i documenti storici/manuali,
- * che restano emessi; gli stati incerti continuano invece a bloccare fail-closed.
+ * Una trasmissione che non ha emesso la fattura: scartata da SdI oppure dichiarata dal titolare
+ * mai trasmessa, finché Aruba non smentisce la dichiarazione con un ID SdI o una notifica.
+ */
+export const ineffectiveSubmissionSql = (submissionAlias: string) =>
+  `(${submissionAlias}.status = 'REJECTED'
+    OR ${arubaSubmissionTransmissionAbsenceSql(submissionAlias)})`;
+
+/**
+ * Una fattura approvata è efficace finché non è provato che nessuna sua trasmissione Aruba
+ * l'abbia emessa. L'assenza di submission copre i documenti storici/manuali, che restano
+ * emessi; gli stati incerti continuano invece a bloccare fail-closed.
  */
 export const effectiveApprovedInvoiceSql = (documentAlias = "documents") =>
   `${documentAlias}.status = 'APPROVED' AND (
@@ -114,7 +123,7 @@ export const effectiveApprovedInvoiceSql = (documentAlias = "documents") =>
     OR EXISTS (
       SELECT 1 FROM aruba_submissions AS invoice_submission
       WHERE invoice_submission.document_id = ${documentAlias}.id
-        AND invoice_submission.status <> 'REJECTED'
+        AND NOT ${ineffectiveSubmissionSql("invoice_submission")}
     )
   )`;
 

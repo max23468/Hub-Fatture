@@ -1239,6 +1239,7 @@ export function documentTransmissionStatusLabel(status: string) {
 }
 
 const documentWarningStatuses = new Set([
+  "NOT_TRANSMITTED",
   "VALIDATION_FAILED",
   "RECONCILIATION_REQUIRED",
   "DRY_RUN_FAILED",

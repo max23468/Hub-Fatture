@@ -89,7 +89,7 @@ export async function resolveArubaIdentityConflict(
   actor: ArubaReadActor,
 ) {
   if (!actor.canApprove) throw new AppError("ARUBA_READ_SESSION_FORBIDDEN", 403);
-  const reason = z.string().trim().min(20).max(500).safeParse(rawReason);
+  const reason = z.string().trim().min(1).max(500).safeParse(rawReason);
   if (!reason.success || !isDatabaseId(selectedId) || confirmation !== "confirmed") {
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);
   }

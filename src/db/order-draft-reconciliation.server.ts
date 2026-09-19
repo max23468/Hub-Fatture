@@ -1,5 +1,6 @@
 import type pg from "pg";
 
+import { invoiceDescription } from "../invoice-description.ts";
 import { refreshInvoiceDraftProjection } from "./invoice-draft-projection.server.ts";
 
 async function invoiceDraftAuditSnapshot(client: pg.PoolClient, caseId: string, lock = false) {
@@ -114,35 +115,50 @@ export async function reconcileInvoiceDraft(
        )`,
     [documentId, caseId],
   );
-  await client.query(
-    `WITH missing AS (
-       SELECT orders.id,
-              'Vendita beni usati - Ordine '
-                || CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END
-                || ' ' || orders.display_number AS description,
-              orders.billable_amount - coalesce((
-                SELECT sum(refunds.amount) FROM refunds
-                WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
-              ), 0) AS billable_amount,
-              row_number() OVER (ORDER BY orders.id) AS position
-       FROM orders
-       WHERE orders.billing_case_id = $2
-         AND NOT EXISTS (
-           SELECT 1 FROM document_lines
-           WHERE document_lines.document_id = $1 AND document_lines.order_id = orders.id
-         )
-     ), offset_value AS (
-       SELECT coalesce(max(line_number), 0) AS value
-       FROM document_lines WHERE document_id = $1
-     )
-     INSERT INTO document_lines
-       (document_id, order_id, line_number, description, quantity, unit_amount,
-        total_amount, tax_nature)
-     SELECT $1, missing.id, offset_value.value + missing.position, missing.description,
-            1, missing.billable_amount, missing.billable_amount, 'N5'
-     FROM missing CROSS JOIN offset_value`,
+  const missingLines = await client.query<{
+    id: string;
+    provider: "SHOPIFY" | "EBAY";
+    display_number: string;
+    product_descriptions: string[];
+    billable_amount: number;
+  }>(
+    `SELECT orders.id, orders.provider, orders.display_number,
+            coalesce((SELECT jsonb_agg(order_lines.description ORDER BY order_lines.id)
+              FROM order_lines WHERE order_lines.order_id = orders.id), '[]'::jsonb)
+              AS product_descriptions,
+            orders.billable_amount - coalesce((
+              SELECT sum(refunds.amount) FROM refunds
+              WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
+            ), 0) AS billable_amount
+     FROM orders
+     WHERE orders.billing_case_id = $2
+       AND NOT EXISTS (
+         SELECT 1 FROM document_lines
+         WHERE document_lines.document_id = $1 AND document_lines.order_id = orders.id
+       )
+     ORDER BY orders.id`,
     [documentId, caseId],
   );
+  const offset = await client.query<{ value: number }>(
+    `SELECT coalesce(max(line_number), 0)::integer AS value
+     FROM document_lines WHERE document_id = $1`,
+    [documentId],
+  );
+  for (const [index, line] of missingLines.rows.entries()) {
+    await client.query(
+      `INSERT INTO document_lines
+        (document_id, order_id, line_number, description, quantity, unit_amount,
+         total_amount, tax_nature)
+       VALUES ($1, $2, $3, $4, 1, $5, $5, 'N5')`,
+      [
+        documentId,
+        line.id,
+        offset.rows[0]!.value + index + 1,
+        invoiceDescription(line.product_descriptions, line.provider, line.display_number),
+        line.billable_amount,
+      ],
+    );
+  }
   await client.query(
     `WITH totals AS (
        SELECT coalesce((SELECT sum(document_orders.amount) FROM document_orders

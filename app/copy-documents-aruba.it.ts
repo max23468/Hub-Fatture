@@ -65,4 +65,5 @@ export const arubaTransmissionStatusCopy = {
   SEND_PENDING: "Trasmissione Aruba pianificata",
   SEND_FAILED: "Trasmissione rifiutata da Aruba",
   ARUBA_ACCEPTED: "Accettato da Aruba; esito SdI in attesa",
+  NOT_TRANSMITTED: "Mai trasmesso a SdI",
 };

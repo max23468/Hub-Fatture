@@ -114,7 +114,7 @@ export async function resolveArubaDocumentMatch(
   rawExternalEvidenceConfirmation: unknown,
   actor: ArubaReadActor,
 ) {
-  const reason = z.string().trim().min(10).max(500).safeParse(rawReason);
+  const reason = z.string().trim().min(1).max(500).safeParse(rawReason);
   if (!actor.canApprove) throw new AppError("ARUBA_READ_SESSION_FORBIDDEN", 403);
   if (!isDatabaseId(remoteDocumentId) || !isDatabaseId(orderId) || !reason.success) {
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);
@@ -261,7 +261,7 @@ export async function confirmArubaDocumentOutOfScope(
   rawCandidateRejection: unknown,
   actor: ArubaReadActor,
 ) {
-  const reason = z.string().trim().min(20).max(500).safeParse(rawReason);
+  const reason = z.string().trim().min(1).max(500).safeParse(rawReason);
   if (!actor.canApprove) throw new AppError("ARUBA_READ_SESSION_FORBIDDEN", 403);
   if (!isDatabaseId(remoteDocumentId) || !reason.success) {
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);

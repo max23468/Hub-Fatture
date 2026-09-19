@@ -91,7 +91,7 @@ function CustomerTaxFields({ identifiers }: { identifiers: EditableTaxIdentifier
             key={`${identifier.type ?? "nuovo"}:${identifier.countryCode ?? ""}:${identifier.value ?? ""}`}
           >
             <legend>
-              {index < identifiers.length - 1
+              {identifier.value
                 ? copy.customerEditor.identifier(index + 1)
                 : copy.customerEditor.newIdentifier}
             </legend>
@@ -154,7 +154,9 @@ export function CustomerEditor({
   revision: number;
 }) {
   const address = customer.billingAddress ?? {};
-  const identifiers = [...(customer.taxIdentifiers ?? []), {}];
+  // Si corregge il dato fiscale esistente; un campo vuoto compare solo se manca del tutto.
+  const existingIdentifiers = customer.taxIdentifiers ?? [];
+  const identifiers = existingIdentifiers.length ? existingIdentifiers : [{}];
   return (
     <details className="card section-gap preparation-disclosure" id="dati-destinatario" open>
       <summary>

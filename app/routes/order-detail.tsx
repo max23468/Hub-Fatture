@@ -178,7 +178,6 @@ function HistoricalReconciliationForm({
         <textarea
           name="reference"
           required
-          minLength={10}
           maxLength={500}
           defaultValue={needsInvoiceAttachment ? (reference ?? "") : ""}
         />

@@ -13,8 +13,7 @@ test("solo lo scarto autorevole di tutte le submission ricrea la preparazione", 
   try {
     await runMigrations({ connectionString: database.connectionString });
     const { closePool, getPool, withTransaction } = await import("./client.server.ts");
-    const { requeueAuthoritativelyRejectedInvoice } =
-      await import("./rejected-invoice-requeue.server.ts");
+    const { requeueIneffectiveInvoice } = await import("./rejected-invoice-requeue.server.ts");
     const pool = getPool();
     await pool.query(
       `INSERT INTO users (username, password_hash, can_approve)
@@ -129,7 +128,7 @@ test("solo lo scarto autorevole di tutte le submission ricrea la preparazione", 
 
     assert.deepEqual(
       await withTransaction((client) =>
-        requeueAuthoritativelyRejectedInvoice(client, rejectedId, {
+        requeueIneffectiveInvoice(client, rejectedId, {
           requestId: "test-rejected-not-yet-authoritative",
         }),
       ),
@@ -139,7 +138,7 @@ test("solo lo scarto autorevole di tutte le submission ricrea la preparazione", 
       processingId,
     ]);
     const requeued = await withTransaction((client) =>
-      requeueAuthoritativelyRejectedInvoice(client, processingId, {
+      requeueIneffectiveInvoice(client, processingId, {
         requestId: "test-rejected-authoritative",
       }),
     );
@@ -246,7 +245,7 @@ test("solo lo scarto autorevole di tutte le submission ricrea la preparazione", 
     );
     assert.deepEqual(
       await withTransaction((client) =>
-        requeueAuthoritativelyRejectedInvoice(client, processingId, {
+        requeueIneffectiveInvoice(client, processingId, {
           requestId: "test-rejected-idempotent",
         }),
       ),

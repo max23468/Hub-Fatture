@@ -16,6 +16,11 @@ import {
 import { AppError } from "../errors.ts";
 import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { creditableRemainder } from "../refunds.ts";
+import {
+  creditDescription,
+  invoiceDescription,
+  isLegacyInvoiceDescription,
+} from "../invoice-description.ts";
 import { recipientComparison } from "../recipient-comparison.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { writeAudit } from "./audit.server.ts";
@@ -203,9 +208,15 @@ export async function refreshCreditNoteDraft(client: pg.PoolClient, documentId: 
     order_id: string;
     provider: "SHOPIFY" | "EBAY";
     display_number: string;
+    invoice_description: string | null;
+    product_descriptions: string[];
     amount: number;
   }>(
     `SELECT refunds.order_id, orders.provider, orders.display_number,
+            max(invoice_line.description) AS invoice_description,
+            coalesce((SELECT jsonb_agg(order_lines.description ORDER BY order_lines.id)
+              FROM order_lines WHERE order_lines.order_id = orders.id), '[]'::jsonb)
+              AS product_descriptions,
             CASE
               WHEN (orders.provider = 'SHOPIFY'
                 AND orders.deducted_shopify_payments_fee_amount > 0)
@@ -230,6 +241,9 @@ export async function refreshCreditNoteDraft(client: pg.PoolClient, documentId: 
        ON invoice_order.document_id = document_links.related_document_id
       AND invoice_order.document_kind = 'INVOICE'
       AND invoice_order.order_id = refunds.order_id
+     LEFT JOIN document_lines AS invoice_line
+       ON invoice_line.document_id = document_links.related_document_id
+      AND invoice_line.order_id = refunds.order_id
      LEFT JOIN LATERAL (
        SELECT coalesce(sum(credit_order.amount), 0)::integer AS amount
        FROM document_orders AS credit_order
@@ -240,7 +254,7 @@ export async function refreshCreditNoteDraft(client: pg.PoolClient, documentId: 
          AND credit_order.document_kind = 'CREDIT_NOTE'
      ) AS approved_credit ON true
      WHERE refunds.credit_document_id = $1
-     GROUP BY refunds.order_id, orders.provider, orders.display_number,
+     GROUP BY refunds.order_id, orders.id, orders.provider, orders.display_number,
               orders.deducted_shopify_payments_fee_amount,
               document_links.related_document_id, invoice_order.amount,
               approved_credit.amount
@@ -286,7 +300,12 @@ export async function refreshCreditNoteDraft(client: pg.PoolClient, documentId: 
         documentId,
         line.order_id,
         index + 1,
-        `Rimborso ordine ${line.provider === "SHOPIFY" ? "Shopify" : "eBay"} ${line.display_number}`,
+        line.invoice_description &&
+        !isLegacyInvoiceDescription(line.invoice_description, line.provider, line.display_number)
+          ? creditDescription(line.invoice_description)
+          : creditDescription(
+              invoiceDescription(line.product_descriptions, line.provider, line.display_number),
+            ),
         line.amount,
       ],
     );

@@ -808,6 +808,9 @@ Se Aruba o SdI scartano:
 - soltanto dopo un `REJECTED` API autorevole, riportare gli ordini ancora fatturabili in una nuova
   preparazione senza approvarla né trasmetterla; la fattura scartata, il numero e i collegamenti
   originari restano immutabili nello storico;
+- trattare allo stesso modo una fattura che il titolare dichiara mai trasmessa a SdI: senza ID SdI,
+  notifiche o invio non è emessa, e i suoi ordini tornano in una nuova preparazione; la
+  dichiarazione decade se Aruba assegna un ID SdI o produce una notifica;
 - non generare una nota di credito per il documento scartato;
 - bloccare modifiche al file inviato ma permettere una nuova revisione/riedizione secondo la procedura verificata;
 - conservare ogni tentativo;
