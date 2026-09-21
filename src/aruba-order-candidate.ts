@@ -15,6 +15,7 @@ export interface ArubaOrderCandidateSource {
   refund_timing_ambiguous?: boolean;
   bank_transfer_paid_on_document_date?: boolean;
   payment_rounding_amount?: number;
+  confirmed_recipient_identity?: boolean;
 }
 
 export function arubaOrderCandidateFromSource(
@@ -47,5 +48,8 @@ export function arubaOrderCandidateFromSource(
     ...(source.bank_transfer_paid_on_document_date === undefined
       ? {}
       : { bankTransferPaidOnDocumentDate: source.bank_transfer_paid_on_document_date }),
+    ...(source.confirmed_recipient_identity === undefined
+      ? {}
+      : { confirmedRecipientIdentity: source.confirmed_recipient_identity }),
   };
 }

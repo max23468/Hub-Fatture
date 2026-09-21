@@ -10,9 +10,15 @@ import {
   fiscalProfileFromAcceptedInvoiceXml,
   generateFatturaXml,
 } from "../documents.ts";
-import { ARUBA_MATCHER_VERSION } from "../aruba-inbound.ts";
+import {
+  ARUBA_MATCHER_VERSION,
+  selectOrderMatch,
+  type RemoteInventoryDocument,
+} from "../aruba-inbound.ts";
+import { arubaOrderCandidateFromSource } from "../aruba-order-candidate.ts";
 import { AppError } from "../errors.ts";
 import { upgradeCachedArubaMatcher } from "./aruba-matcher-upgrade.server.ts";
+import { arubaOrderCandidates } from "./aruba-reconciliation.server.ts";
 import { closePool, getPool, withTransaction } from "./client.server.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
@@ -443,7 +449,7 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
            created_at_source, updated_at_source, local_order_date, currency, gross_amount,
            payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
            raw_snapshot_json, normalized_snapshot_json)
-         VALUES ('SHOPIFY', 'manual-link', 'external-evidence', '#1002', now(), now(),
+         VALUES ('EBAY', 'manual-link', 'external-evidence', '1002', now(), now(),
            '2026-08-10', 'EUR', 12345, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}', $3)
          RETURNING id::text`,
         [
@@ -457,7 +463,9 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
         ],
       )
     ).rows[0]!;
-    const externalXml = xml.replace("FPR 0001/26", "FPR 0009/26");
+    const externalXml = xml
+      .replace("FPR 0001/26", "FPR 0009/26")
+      .replace("Ordine Shopify #1001", "Vendita esterna");
     const externalDigest = createHash("sha256").update(externalXml).digest("hex");
     const externalPath = "aruba/manual/external-evidence.xml";
     await writeFile(path.join(sharedStorageRoot, externalPath), externalXml, { mode: 0o600 });
@@ -466,9 +474,11 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
         `INSERT INTO aruba_remote_documents
           (environment, account_reference, remote_id, document_type, fiscal_year, series,
            fiscal_number, document_date, total_amount, remote_status,
-           remote_status_observed_at, metadata_digest, xml_sha256)
+           remote_status_observed_at, metadata_digest, xml_sha256,
+           recipient_tax_id_normalized)
          VALUES ('MOCK', 'synthetic-aruba-account', 'external-evidence', 'TD01', 2026,
-           'FPR', '9', '2026-08-10', 12345, 'DELIVERED', now(), repeat('9', 64), $1)
+           'FPR', '9', '2026-08-10', 12345, 'DELIVERED', now(), repeat('9', 64), $1,
+           'RSSMRA80A01H501U')
          RETURNING id::text`,
         [externalDigest],
       )
@@ -522,7 +532,7 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
     await decisions.resolveArubaDocumentMatch(
       externalRemote.id,
       externalOrder.id,
-      "Conferma cliente: FPR 0009/26 riferita all’ordine Shopify #1002",
+      "Conferma cliente: FPR 0009/26 riferita all’ordine eBay 1002",
       null,
       "confirmed",
       owner,
@@ -546,8 +556,115 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
         method: "MANUAL",
         trigger_status: "INVOICED",
         external_evidence: "true",
-        decision_reason: "Conferma cliente: FPR 0009/26 riferita all’ordine Shopify #1002",
+        decision_reason: "Conferma cliente: FPR 0009/26 riferita all’ordine eBay 1002",
       },
+    );
+
+    const futureCase = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json,
+           fiscal_profile_version)
+         VALUES ($1, '2026-10-10', 'EUR', 'READY', $2, 1) RETURNING id::text`,
+        [externalCustomer.id, JSON.stringify(externalSnapshot)],
+      )
+    ).rows[0]!;
+    const futureOrder = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO orders
+          (provider, external_account_id, external_order_id, display_number,
+           created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+           raw_snapshot_json, normalized_snapshot_json)
+         VALUES ('EBAY', 'manual-link', 'future-external-evidence', '1003', now(), now(),
+           '2026-10-10', 'EUR', 12345, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}', $3)
+         RETURNING id::text`,
+        [
+          externalCustomer.id,
+          futureCase.id,
+          JSON.stringify({
+            orderReviewRequired: false,
+            deferredReviewRequired: false,
+            customerSnapshot: externalSnapshot,
+          }),
+        ],
+      )
+    ).rows[0]!;
+    const otherCustomer = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO customers
+          (kind, match_key, display_name, billing_address_json, source_confidence,
+           review_required)
+         VALUES ('EU', 'other-future-customer', 'Altro cliente', '{}', 'EXACT_PROFILE', false)
+         RETURNING id::text`,
+      )
+    ).rows[0]!;
+    const otherCustomerCase = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json,
+           fiscal_profile_version)
+         VALUES ($1, '2026-10-10', 'EUR', 'READY', $2, 1) RETURNING id::text`,
+        [otherCustomer.id, JSON.stringify(externalSnapshot)],
+      )
+    ).rows[0]!;
+    const otherCustomerOrder = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO orders
+          (provider, external_account_id, external_order_id, display_number,
+           created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+           raw_snapshot_json, normalized_snapshot_json)
+         VALUES ('EBAY', 'manual-link', 'other-customer-same-total', '1004', now(), now(),
+           '2026-10-10', 'EUR', 12345, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}', $3)
+         RETURNING id::text`,
+        [
+          otherCustomer.id,
+          otherCustomerCase.id,
+          JSON.stringify({
+            orderReviewRequired: false,
+            deferredReviewRequired: false,
+            customerSnapshot,
+          }),
+        ],
+      )
+    ).rows[0]!;
+    const futureRemote: RemoteInventoryDocument = {
+      remoteId: "future-external-evidence",
+      documentType: "TD01",
+      fiscalYear: 2026,
+      series: "FPR",
+      fiscalNumber: "10",
+      documentDate: "2026-10-10",
+      recipientName: "Intestazione Aruba differente",
+      recipientTaxId: "RSSMRA80A01H501U",
+      recipientTaxIdentifiers: [
+        { type: "CODICE_FISCALE", countryCode: "IT", value: "RSSMRA80A01H501U" },
+      ],
+      recipientCountryCode: "IT",
+      recipientAddress: null,
+      totalAmount: 12345,
+      currency: "EUR",
+      status: "DELIVERED",
+      providerObservedAt: null,
+      xmlSha256: "a".repeat(64),
+      orderReferences: [],
+    };
+    const futureCandidates = await withTransaction((client) =>
+      arubaOrderCandidates(client, futureRemote),
+    );
+    const futureCandidate = futureCandidates.find((candidate) => candidate.id === futureOrder.id);
+    const otherCustomerCandidate = futureCandidates.find(
+      (candidate) => candidate.id === otherCustomerOrder.id,
+    );
+    assert.equal(futureCandidate?.confirmed_recipient_identity, true);
+    assert.equal(otherCustomerCandidate?.confirmed_recipient_identity, false);
+    assert.equal(
+      selectOrderMatch(
+        futureRemote,
+        futureCandidates.map((candidate) => arubaOrderCandidateFromSource(candidate)),
+      ).status,
+      "MATCHED",
     );
     assert.deepEqual(
       (

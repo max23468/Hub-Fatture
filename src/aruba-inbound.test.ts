@@ -287,6 +287,34 @@ test("stesso giorno e importo con anagrafica diversa richiedono una prova estern
   );
 });
 
+test("un’identità Aruba già confermata collega solo il cliente eBay corrispondente", () => {
+  const candidate = {
+    id: "future-ebay-order",
+    provider: "EBAY" as const,
+    displayNumber: "62482",
+    localOrderDate: "2026-08-12",
+    billableAmount: 12_300,
+    recipientName: "Cliente differente",
+    recipientTaxIdentifiers: [],
+    recipientAddress: "Indirizzo marketplace",
+    confirmedRecipientIdentity: true,
+  };
+  const officialRemote = { ...remote, xmlSha256: "a".repeat(64) };
+
+  const matched = selectOrderMatch(officialRemote, [candidate]);
+  assert.equal(matched.status, "MATCHED");
+  assert.equal(matched.evaluations[0]?.signals.confirmedRecipientIdentity, true);
+  assert.equal(selectOrderMatch(remote, [candidate]).status, "UNMATCHED");
+  assert.equal(
+    selectOrderMatch(officialRemote, [{ ...candidate, localOrderDate: "2026-08-11" }]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(officialRemote, [candidate, { ...candidate, id: "another-order" }]).status,
+    "AMBIGUOUS",
+  );
+});
+
 test("un candidato univoco richiede data, importo e identità coerenti", () => {
   const result = selectOrderMatch(remote, [
     {
