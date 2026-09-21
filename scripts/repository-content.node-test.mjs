@@ -112,6 +112,11 @@ function syntheticCommit(tree, parent) {
   return result.stdout.trim();
 }
 
+test("React Router accetta i form inoltrati dall’host Production canonico", async () => {
+  const config = await readFile(path.join(root, "react-router.config.ts"), "utf8");
+  assert.match(config, /allowedActionOrigins:\s*\["fatture\.opik\.net"\]/);
+});
+
 // `git grep` esce 0 con match, 1 senza match e 2 in errore: `!` in shell trasformerebbe
 // anche l'errore in successo, quindi la guardia vive qui dove lo stato è ispezionabile.
 function tracked(pattern) {

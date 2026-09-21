@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.3
+
+- Un collegamento manuale confermato fra una fattura Aruba e un ordine eBay insegna l’identità fiscale del cliente: le fatture future dello stesso cliente vengono collegate automaticamente quando XML ufficiale, data e importo coincidono e il candidato è unico.
+- I moduli inviati da `fatture.opik.net` raggiungono correttamente le azioni dell’applicazione anche dietro il proxy Production, senza mostrare la pagina di errore generica.
+
 ## 1.6.2
 
 - Le preparazioni eBay aperte vengono rilette anche quando il nome completo era già visibile ma nome e cognome strutturati erano rimasti vuoti; i controlli di identità risolvibili dai dati della sorgente si chiudono automaticamente.

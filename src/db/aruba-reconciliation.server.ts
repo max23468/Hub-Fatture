@@ -113,7 +113,20 @@ export async function arubaOrderCandidates(client: pg.PoolClient, remote: Remote
                 orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,city}'),
               coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,countryCode}',
                 orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}')
-            ) AS recipient_address
+            ) AS recipient_address,
+            (orders.provider = 'EBAY' AND $3::text IS NOT NULL AND EXISTS (
+              SELECT 1
+              FROM aruba_document_matches AS confirmed_match
+              JOIN aruba_remote_documents AS confirmed_remote
+                ON confirmed_remote.id = confirmed_match.remote_document_id
+              JOIN orders AS confirmed_order ON confirmed_order.id = confirmed_match.order_id
+              WHERE confirmed_match.status = 'MATCHED' AND confirmed_match.method = 'MANUAL'
+                AND confirmed_order.provider = orders.provider
+                AND confirmed_order.customer_id = orders.customer_id
+                AND confirmed_remote.environment = $4
+                AND confirmed_remote.account_reference = $5
+                AND confirmed_remote.recipient_tax_id_normalized = $3
+            )) AS confirmed_recipient_identity
      FROM orders
      JOIN customers ON customers.id = orders.customer_id
      LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
@@ -131,7 +144,13 @@ export async function arubaOrderCandidates(client: pg.PoolClient, remote: Remote
        )
        AND orders.trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
      ORDER BY orders.id`,
-    [remote.documentDate, normalizedOrderReferences],
+    [
+      remote.documentDate,
+      normalizedOrderReferences,
+      normalizedMatchText(remote.recipientTaxId),
+      environment(),
+      accountReference(),
+    ],
   );
   return result.rows;
 }

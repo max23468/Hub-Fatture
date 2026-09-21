@@ -25,6 +25,18 @@ test("le mutazioni senza origine valida non raggiungono l’azione", async ({ re
   expect(login.status()).toBeLessThan(500);
 });
 
+test("l’origine Production inoltrata supera la guardia del framework", async ({ request }) => {
+  const login = await request.post("/login", {
+    form: { username: "utente-inesistente", password: "credenziali-errate" },
+    headers: { origin: "https://fatture.opik.net" },
+  });
+
+  // In E2E APP_BASE_URL è locale, quindi la guardia applicativa la rifiuta con il
+  // proprio codice stabile. Un 400 HTML arriverebbe invece dalla guardia del framework.
+  expect(login.status()).toBe(403);
+  expect(await login.text()).toContain("Origine della richiesta non valida.");
+});
+
 test("gli errori delle azioni restano codici stabili, non 500", async ({ request }) => {
   const headers = { origin: appBaseUrl };
   expect((await request.post("/logout", { form: { csrf: "x" } })).status()).toBe(403);

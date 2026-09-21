@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 16;
+export const ARUBA_MATCHER_VERSION = 17;
 export const ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES = ["TD01", "TD04"] as const;
 
 export const arubaRemoteStatusSchema = z.enum([
@@ -212,6 +212,7 @@ export interface ArubaOrderCandidate {
   refundTimingAmbiguous?: boolean;
   bankTransferPaidOnDocumentDate?: boolean;
   paymentRoundingAmount?: number;
+  confirmedRecipientIdentity?: boolean;
 }
 
 export interface CandidateEvaluation {
@@ -239,6 +240,7 @@ export interface CandidateEvaluation {
     bankTransferPayment?: boolean;
     refundTimingClear?: boolean;
     paymentRounding?: boolean;
+    confirmedRecipientIdentity?: boolean;
   };
 }
 
@@ -652,6 +654,7 @@ function evaluateOrderCandidate(
     exactRecipient &&
     city &&
     country;
+  const confirmedRecipientIdentity = Boolean(candidate.confirmedRecipientIdentity);
   const refundTimingClear = !candidate.refundTimingAmbiguous;
   const probe = provider && nearDate && total && refundTimingClear;
   const potential = probe && recipient && hasSpecificRecipientName(remote.recipientName);
@@ -665,7 +668,8 @@ function evaluateOrderCandidate(
       refundTimingClear &&
       ((explicitReference && referencedRecipientIsCompatible) ||
         inferredRecipientIsCompatible ||
-        nameLocationIsCompatible),
+        nameLocationIsCompatible ||
+        (Boolean(remote.xmlSha256) && probe && sameDay && confirmedRecipientIdentity)),
     reviewable: provider && date && total && identitySignals >= 1 && refundTimingClear,
     potential,
     probe,
@@ -686,6 +690,7 @@ function evaluateOrderCandidate(
       address,
       bankTransferPayment,
       refundTimingClear,
+      ...(confirmedRecipientIdentity ? { confirmedRecipientIdentity: true } : {}),
       ...(paymentRounding ? { paymentRounding } : {}),
     },
   };
