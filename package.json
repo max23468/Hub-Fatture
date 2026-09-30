@@ -55,7 +55,7 @@
   "dependencies": {
     "@react-router/node": "8.4.0",
     "@react-router/serve": "8.4.0",
-    "@shopify/shopify-api": "14.0.1",
+    "@shopify/shopify-api": "15.0.0",
     "lucide-react": "1.46.0",
     "nodemailer": "10.0.10",
     "pg": "8.23.0",
