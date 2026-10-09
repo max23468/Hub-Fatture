@@ -18,7 +18,7 @@ concurrency:
 jobs:
   verify:
     name: Foundation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -78,5 +78,14 @@ jobs:
         run: |
           docker build --tag hub-fatture-app:foundation .
           docker run --rm hub-fatture-app:foundation xmllint --version
+      - name: Blocca vulnerabilità alte e critiche prima del merge
+        if: steps.reuse.outputs.reused != 'true' && steps.impact.outputs.image == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: hub-fatture-app:foundation
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
       - if: steps.reuse.outputs.reused == 'true'
         run: echo "Foundation riusata dalla PR con albero Git equivalente."

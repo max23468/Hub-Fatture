@@ -630,6 +630,11 @@ test("l’immagine applicativa usa Trixie Slim immutabile e resta qualificabile 
   assert.match(artifact, /platforms: linux\/arm64/);
   assert.match(artifact, /ignore-unfixed: true/);
   assert.match(artifact, /severity: CRITICAL,HIGH/);
+  const foundation = await readFile(path.join(root, ".github/workflows/foundation.yml"), "utf8");
+  assert.match(foundation, /runs-on: ubuntu-24\.04-arm/);
+  assert.match(foundation, /image-ref: hub-fatture-app:foundation/);
+  assert.match(foundation, /severity: CRITICAL,HIGH/);
+  assert.match(foundation, /ignore-unfixed: true/);
   assert.match(artifact, /actions\/attest-build-provenance@[0-9a-f]{40}/);
 });
 
