@@ -1,6 +1,6 @@
 FROM node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS debian-snapshot
 
-ARG DEBIAN_SNAPSHOT=20260915T060000Z
+ARG DEBIAN_SNAPSHOT=20261009T000000Z
 RUN sed -i \
     -e "s|^URIs: http://deb.debian.org/debian$|URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|" \
     -e "s|^URIs: http://deb.debian.org/debian-security$|URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|" \
@@ -13,11 +13,11 @@ RUN npm install --global npm@12.0.2 \
   && apt-get update \
   && apt-get install --yes --no-install-recommends \
     gzip=1.13-1+deb13u1 \
-    libpcre2-8-0=10.46-1~deb13u2 \
+    libpcre2-8-0=10.46-1~deb13u3 \
     libsqlite3-0=3.46.1-7+deb13u2 \
-    libssl3t64=3.5.7-1~deb13u2 \
+    libssl3t64=3.5.7-1~deb13u3 \
     libxml2-utils=2.12.7+dfsg+really2.9.14-2.1+deb13u3 \
-    openssl-provider-legacy=3.5.7-1~deb13u2 \
+    openssl-provider-legacy=3.5.7-1~deb13u3 \
     perl-base=5.40.1-6+deb13u1 \
   && rm -rf /var/lib/apt/lists/*
 
@@ -50,11 +50,11 @@ LABEL org.opencontainers.image.source="https://github.com/max23468/Hub-Fatture" 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends \
     gzip=1.13-1+deb13u1 \
-    libpcre2-8-0=10.46-1~deb13u2 \
+    libpcre2-8-0=10.46-1~deb13u3 \
     libsqlite3-0=3.46.1-7+deb13u2 \
-    libssl3t64=3.5.7-1~deb13u2 \
+    libssl3t64=3.5.7-1~deb13u3 \
     libxml2-utils=2.12.7+dfsg+really2.9.14-2.1+deb13u3 \
-    openssl-provider-legacy=3.5.7-1~deb13u2 \
+    openssl-provider-legacy=3.5.7-1~deb13u3 \
     perl-base=5.40.1-6+deb13u1 \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --gid 10001 hub-fatture \
