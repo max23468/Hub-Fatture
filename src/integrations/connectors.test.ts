@@ -987,3 +987,32 @@ test("Shopify Payments fallisce chiuso se la conversione non è verificabile", a
     "0.00",
   );
 });
+
+test("Shopify OAuth SDK conserva il cookie HttpOnly e lo scope del connettore", async () => {
+  const { ApiVersion, shopifyApi } = await import("@shopify/shopify-api");
+  const sdk = shopifyApi({
+    apiKey: "synthetic-api-key",
+    apiSecretKey: "synthetic-secret",
+    apiVersion: ApiVersion.July26,
+    scopes: ["read_orders"],
+    hostName: "example.test",
+    hostScheme: "https",
+    isEmbeddedApp: false,
+  });
+  const response = await sdk.auth.begin({
+    shop: "synthetic-test.myshopify.com",
+    callbackPath: "/integrations/shopify/callback",
+    isOnline: false,
+    rawRequest: new Request("https://example.test/integrations/shopify"),
+  });
+  const cookie = response.headers.get("set-cookie") ?? "";
+  assert.match(cookie, /HttpOnly/i);
+  assert.match(cookie, /Secure/i);
+  const location = new URL(response.headers.get("location") ?? "");
+  assert.equal(location.hostname, "synthetic-test.myshopify.com");
+  assert.equal(location.searchParams.get("scope"), "read_orders");
+  assert.equal(
+    location.searchParams.get("redirect_uri"),
+    "https://example.test/integrations/shopify/callback",
+  );
+});

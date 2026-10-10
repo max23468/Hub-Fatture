@@ -46,6 +46,10 @@ jobs:
             impact=$(printf '%s\n' standard=true security_data=true database=true provider=true e2e=true 'e2e_matrix={"include":[{"browser":"chromium","label":"Chromium","install":"chromium"},{"browser":"webkit","label":"WebKit","install":"webkit chromium"}]}' lane=deploy)
           else
             impact=$(node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA")
+            if git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- package.json package-lock.json | grep -q . &&
+              git diff "$BASE_SHA" "$HEAD_SHA" -- package.json | grep -q '@shopify/shopify-api'; then
+              impact=$(printf '%s\n' "$impact" | sed 's/^database=false$/database=true/;s/^provider=false$/provider=true/')
+            fi
           fi
           printf '%s\n' "$impact" >> "$GITHUB_OUTPUT"
       - id: reuse
