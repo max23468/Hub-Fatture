@@ -2,13 +2,7 @@
    `color-scheme`, che il tema di sistema imposta da solo e la preferenza manuale forza. */
 :root {
   color-scheme: light dark;
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --color-bg: light-dark(#f4f8fa, #071722);
   --color-surface: light-dark(#ffffff, #0b1f2b);
   --color-surface-muted: light-dark(#eaf2f5, #102936);
