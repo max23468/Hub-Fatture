@@ -56,8 +56,8 @@
     "@react-router/node": "8.4.0",
     "@react-router/serve": "8.4.0",
     "@shopify/shopify-api": "15.0.1",
-    "lucide-react": "1.49.0",
-    "nodemailer": "10.0.13",
+    "lucide-react": "1.54.0",
+    "nodemailer": "10.0.16",
     "pg": "8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -66,17 +66,17 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@playwright/test": "1.63.0",
+    "@playwright/test": "1.64.0",
     "@react-router/dev": "8.4.0",
     "@types/node": "26.6.4",
     "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "oxfmt": "0.71.0",
-    "oxlint": "1.86.0",
-    "react-doctor": "0.9.14",
+    "oxfmt": "0.72.0",
+    "oxlint": "1.87.0",
+    "react-doctor": "0.9.17",
     "typescript": "7.0.2",
-    "vite": "8.3.2"
+    "vite": "8.3.4"
   },
   "engines": {
     "node": "26.10.0",
