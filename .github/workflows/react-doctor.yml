@@ -47,7 +47,7 @@ jobs:
           fi
       - id: doctor
         if: steps.reuse.outputs.reused != 'true' && steps.impact.outputs.react == 'true'
-        uses: millionco/react-doctor@673ce802a375eeb4c3c5cb9a96d21eaeb7eafd93 # v2.3.1
+        uses: millionco/react-doctor@695e46eee203a5d1855020191aa7e9c010a1250e # v2.4.0
         with:
           version: latest
           scope: ${{ github.event_name == 'pull_request' && 'changed' || 'full' }}
