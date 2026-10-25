@@ -21,6 +21,20 @@ function ghJson(args) {
   return output ? JSON.parse(output) : null;
 }
 
+// Le PR passano dall'API REST: le sessioni Claude Code cloud non raggiungono
+// GraphQL, usato dai comandi `gh pr`.
+function pullsApi(path = "") {
+  return `repos/{owner}/{repo}/pulls${path}`;
+}
+
+export function autoMergeArgs(number, head, environment = process.env) {
+  // Nel cloud l'auto-merge passa dalla route del proxy, che non accetta il
+  // vincolo sull'HEAD: waitForMerge rifiuta comunque un HEAD diverso.
+  if (environment.CLAUDE_CODE_REMOTE === "true")
+    return ["api", "-X", "PUT", pullsApi(`/${number}/ccr/auto_merge`), "-f", "merge_method=squash"];
+  return ["pr", "merge", String(number), "--auto", "--squash", "--match-head-commit", head];
+}
+
 export function queuedTooLong(run, now = Date.now(), thresholdMs = 300_000) {
   return run.status === "queued" && now - Date.parse(run.created_at) >= thresholdMs;
 }
@@ -30,7 +44,7 @@ export function publicationPlan({ branch, head, title }) {
     `preflight locale per ${head.slice(0, 12)}`,
     `push di ${branch}`,
     `PR con titolo: ${title}`,
-    "auto-merge squash vincolato all'HEAD esatto",
+    "auto-merge squash con verifica dell'HEAD esatto",
     "dispatch Production immediato sullo SHA di main",
     "attesa di gate, deploy, release e ricevuta live exact-SHA",
     "pulizia del branch e del worktree assorbiti",
@@ -63,7 +77,7 @@ function queueHealth() {
     "databaseId,name,status,createdAt,url,headSha",
   ]).map((run) => ({ ...run, created_at: run.createdAt }));
   const stale = runs.filter((run) => queuedTooLong(run));
-  const pulls = ghJson(["pr", "list", "--state", "open", "--json", "number,title,headRefName,url"]);
+  const pulls = ghJson(["api", pullsApi("?state=open&per_page=100")]);
   if (stale.length === 0)
     process.stdout.write("Coda GitHub: nessuna esecuzione in attesa da oltre 5 minuti.\n");
   for (const run of stale) {
@@ -74,7 +88,7 @@ function queueHealth() {
   }
   if (pulls.length > 0) {
     process.stdout.write(
-      `PR aperte da valutare per lo stesso candidato: ${pulls.map((pull) => `#${pull.number} ${pull.headRefName}`).join(", ")}\n`,
+      `PR aperte da valutare per lo stesso candidato: ${pulls.map((pull) => `#${pull.number} ${pull.head.ref}`).join(", ")}\n`,
     );
   }
   return stale.length === 0;
@@ -82,17 +96,11 @@ function queueHealth() {
 
 async function waitForMerge(number, expectedHead) {
   for (let attempt = 0; attempt < 180; attempt += 1) {
-    const pull = ghJson([
-      "pr",
-      "view",
-      String(number),
-      "--json",
-      "state,headRefOid,mergeCommit,url",
-    ]);
-    if (pull.headRefOid !== expectedHead)
+    const pull = ghJson(["api", pullsApi(`/${number}`)]);
+    if (pull.head.sha !== expectedHead)
       throw new Error("L'HEAD della PR è cambiato durante la pubblicazione");
-    if (pull.state === "MERGED") {
-      const mergeSha = pull.mergeCommit?.oid;
+    if (pull.merged) {
+      const mergeSha = pull.merge_commit_sha;
       if (!shaPattern.test(mergeSha ?? "")) throw new Error("SHA di merge non disponibile");
       return mergeSha;
     }
@@ -146,41 +154,26 @@ async function executePublication({ branch, head, title }) {
     throw new Error("Il worktree deve essere pulito prima della pubblicazione");
   exec("npm", ["run", "publish:preflight"], { stdio: "inherit" });
   exec("git", ["push", "--set-upstream", "origin", branch], { stdio: "inherit" });
-  let pull = ghJson([
-    "pr",
-    "list",
-    "--head",
-    branch,
-    "--state",
-    "open",
-    "--json",
-    "number,headRefOid",
-  ])[0];
+  let pull = ghJson(["api", pullsApi(`?state=open&head={owner}:${encodeURIComponent(branch)}`)])[0];
   if (!pull) {
-    const url = exec("gh", [
-      "pr",
-      "create",
-      "--base",
-      "main",
-      "--head",
-      branch,
-      "--title",
-      title,
-      "--fill",
+    pull = ghJson([
+      "api",
+      "-X",
+      "POST",
+      pullsApi(),
+      "-f",
+      "base=main",
+      "-f",
+      `head=${branch}`,
+      "-f",
+      `title=${title}`,
+      "-f",
+      `body=${exec("git", ["log", "-1", "--pretty=%b"])}`,
     ]);
-    pull = ghJson(["pr", "view", url, "--json", "number,headRefOid"]);
   }
-  if (pull.headRefOid !== head) throw new Error("La PR non punta all'HEAD verificato");
-  exec("gh", ["pr", "edit", String(pull.number), "--title", title]);
-  exec("gh", [
-    "pr",
-    "merge",
-    String(pull.number),
-    "--auto",
-    "--squash",
-    "--match-head-commit",
-    head,
-  ]);
+  if (pull.head.sha !== head) throw new Error("La PR non punta all'HEAD verificato");
+  exec("gh", ["api", "-X", "PATCH", pullsApi(`/${pull.number}`), "-f", `title=${title}`]);
+  exec("gh", autoMergeArgs(pull.number, head));
   const mergeSha = await waitForMerge(pull.number, head);
   exec("sh", ["scripts/dispatch-production.sh", mergeSha], { stdio: "inherit" });
   await waitForProduction(mergeSha);

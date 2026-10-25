@@ -122,26 +122,25 @@ const remoteBase = run("git", ["rev-parse", `${remote}/${baseBranch}`], { cwd: r
 
 let pullRequests;
 try {
+  // API REST: le sessioni Claude Code cloud non raggiungono GraphQL (`gh pr`).
   pullRequests = JSON.parse(
     run(
       "gh",
       [
-        "pr",
-        "list",
-        "--state",
-        "merged",
-        "--head",
-        branch,
-        "--base",
-        baseBranch,
-        "--limit",
-        "100",
-        "--json",
-        "number,headRefName,headRefOid,baseRefName,mergeCommit",
+        "api",
+        `repos/{owner}/{repo}/pulls?state=closed&head={owner}:${encodeURIComponent(branch)}&base=${baseBranch}&per_page=100`,
       ],
       { cwd: root },
     ),
-  );
+  )
+    .filter((pullRequest) => pullRequest.merged_at)
+    .map((pullRequest) => ({
+      number: pullRequest.number,
+      headRefName: pullRequest.head.ref,
+      headRefOid: pullRequest.head.sha,
+      baseRefName: pullRequest.base.ref,
+      mergeCommit: { oid: pullRequest.merge_commit_sha },
+    }));
 } catch {
   fail("Impossibile rileggere le PR unite da GitHub: nessun elemento è stato rimosso.");
 }

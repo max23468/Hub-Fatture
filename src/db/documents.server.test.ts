@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, unlink } from "node:fs/promises";
+import { mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -983,7 +983,11 @@ test(
         owner,
       );
       const finalStorageDirectory = path.join(storage, "invoices", expectedFullYear);
-      await chmod(finalStorageDirectory, 0o500);
+      // Un file al posto della cartella blocca l'archiviazione anche per root,
+      // che ignorerebbe i permessi.
+      const movedStorageDirectory = `${finalStorageDirectory}.moved`;
+      await rename(finalStorageDirectory, movedStorageDirectory);
+      await writeFile(finalStorageDirectory, "");
       try {
         const massApproval = await documents.approveInvoices(
           [approvalToken(cases[2]!.id, approvableThirdProjection)],
@@ -999,7 +1003,8 @@ test(
         );
         assert.equal(massApproval.outcomes[0]?.approved, true);
       } finally {
-        await chmod(finalStorageDirectory, 0o700);
+        await rm(finalStorageDirectory);
+        await rename(movedStorageDirectory, finalStorageDirectory);
       }
       assert.deepEqual(
         (

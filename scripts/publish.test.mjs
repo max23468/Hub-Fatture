@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { publicationPlan, queuedTooLong, worktrees } from "./publish.mjs";
+import { autoMergeArgs, publicationPlan, queuedTooLong, worktrees } from "./publish.mjs";
 
 test("segnala una coda soltanto dopo cinque minuti", () => {
   const now = Date.parse("2026-09-13T12:10:00Z");
@@ -27,4 +27,25 @@ test("individua il checkout di main dall'inventario worktree", () => {
   );
   assert.equal(parsed[0].worktree, "/repo");
   assert.equal(parsed[0].branch, "refs/heads/main");
+});
+
+test("l'auto-merge usa la route del proxy soltanto nelle sessioni cloud", () => {
+  const head = "a".repeat(40);
+  assert.deepEqual(autoMergeArgs(17, head, { CLAUDE_CODE_REMOTE: "true" }), [
+    "api",
+    "-X",
+    "PUT",
+    "repos/{owner}/{repo}/pulls/17/ccr/auto_merge",
+    "-f",
+    "merge_method=squash",
+  ]);
+  assert.deepEqual(autoMergeArgs(17, head, {}), [
+    "pr",
+    "merge",
+    "17",
+    "--auto",
+    "--squash",
+    "--match-head-commit",
+    head,
+  ]);
 });

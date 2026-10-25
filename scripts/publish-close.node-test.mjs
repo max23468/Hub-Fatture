@@ -63,7 +63,7 @@ async function fixture() {
   const fakeGh = path.join(fakeBin, "gh");
   await writeFile(
     fakeGh,
-    `#!/bin/sh\nprintf '%s\\n' '[{"number":17,"headRefName":"codex/feature","headRefOid":"${featureSha}","baseRefName":"main","mergeCommit":{"oid":"${mergeSha}"}}]'\n`,
+    `#!/bin/sh\nprintf '%s\\n' '[{"number":17,"head":{"ref":"codex/feature","sha":"${featureSha}"},"base":{"ref":"main"},"merged_at":"2026-10-25T12:00:00Z","merge_commit_sha":"${mergeSha}"},{"number":16,"head":{"ref":"codex/feature","sha":"${featureSha}"},"base":{"ref":"main"},"merged_at":null,"merge_commit_sha":"${mergeSha}"}]'\n`,
   );
   await chmod(fakeGh, 0o755);
 
