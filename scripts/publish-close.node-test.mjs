@@ -73,6 +73,13 @@ async function fixture() {
 test("chiude soltanto il ciclo assorbito e preserva i worktree concorrenti", async () => {
   const value = await fixture();
   try {
+    // Come nei cloni delle sessioni cloud, il fetch copre soltanto main.
+    git(
+      value.primary,
+      "config",
+      "remote.origin.fetch",
+      "+refs/heads/main:refs/remotes/origin/main",
+    );
     git(value.remote, "update-ref", "-d", "refs/heads/codex/feature");
     assert.equal(
       git(value.primary, "rev-parse", "refs/remotes/origin/codex/feature"),
