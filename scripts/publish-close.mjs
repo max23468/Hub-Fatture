@@ -194,6 +194,11 @@ if (run("git", ["rev-parse", "HEAD"], { cwd: root }) !== remoteBase) {
 
 if (remoteBranch) run("git", ["push", remote, "--delete", branch], { cwd: root, stdio: "inherit" });
 run("git", ["fetch", remote, "--prune"], { cwd: root, stdio: "inherit" });
+// Un clone a branch singolo, come nelle sessioni cloud, non pota il riferimento di un
+// branch che GitHub ha già eliminato al merge.
+if (succeeds("git", ["show-ref", "--verify", `refs/remotes/${remote}/${branch}`], { cwd: root })) {
+  run("git", ["update-ref", "-d", `refs/remotes/${remote}/${branch}`], { cwd: root });
+}
 run("git", ["worktree", "remove", target], { cwd: root, stdio: "inherit" });
 run("git", ["branch", "-D", branch], { cwd: root, stdio: "inherit" });
 run("git", ["worktree", "prune"], { cwd: root });
