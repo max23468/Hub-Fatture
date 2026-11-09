@@ -1,6 +1,6 @@
 FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS debian-snapshot
 
-ARG DEBIAN_SNAPSHOT=20261009T000000Z
+ARG DEBIAN_SNAPSHOT=20261108T022935Z
 RUN sed -i \
     -e "s|^URIs: http://deb.debian.org/debian$|URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|" \
     -e "s|^URIs: http://deb.debian.org/debian-security$|URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|" \
@@ -12,6 +12,7 @@ FROM debian-snapshot AS development
 RUN npm install --global npm@12.0.2 \
   && apt-get update \
   && apt-get install --yes --no-install-recommends \
+    apt=3.0.4 \
     gzip=1.13-1+deb13u1 \
     libpcre2-8-0=10.46-1~deb13u3 \
     libsqlite3-0=3.46.1-7+deb13u2 \
@@ -19,6 +20,7 @@ RUN npm install --global npm@12.0.2 \
     libxml2-utils=2.12.7+dfsg+really2.9.14-2.1+deb13u3 \
     openssl-provider-legacy=3.5.7-1~deb13u3 \
     perl-base=5.40.1-6+deb13u1 \
+    zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
@@ -49,6 +51,7 @@ LABEL org.opencontainers.image.source="https://github.com/max23468/Hub-Fatture" 
 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends \
+    apt=3.0.4 \
     gzip=1.13-1+deb13u1 \
     libpcre2-8-0=10.46-1~deb13u3 \
     libsqlite3-0=3.46.1-7+deb13u2 \
@@ -56,6 +59,7 @@ RUN apt-get update \
     libxml2-utils=2.12.7+dfsg+really2.9.14-2.1+deb13u3 \
     openssl-provider-legacy=3.5.7-1~deb13u3 \
     perl-base=5.40.1-6+deb13u1 \
+    zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --gid 10001 hub-fatture \
   && useradd --uid 10001 --gid hub-fatture --no-create-home --shell /usr/sbin/nologin hub-fatture \
