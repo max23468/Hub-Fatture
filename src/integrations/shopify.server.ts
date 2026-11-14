@@ -972,7 +972,12 @@ export async function processShopifyWebhook(request: Request, rawBody: Buffer) {
   } catch {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
   }
-  const externalEventId = payloadHash;
+  // Shopify invia corpi identici per argomenti diversi (per esempio orders/create e
+  // orders/updated): l'argomento fa parte dell'identità dell'evento.
+  const externalEventId = createHash("sha256")
+    .update(`${validation.topic}\n`)
+    .update(rawBody)
+    .digest("hex");
   if (validation.topic === "APP_UNINSTALLED") {
     assertShopifyWebhookShop(payload.myshopify_domain ?? payload.domain, expectedShop);
     return processShopifyUninstallRecord({ externalEventId, payloadSha256: payloadHash });

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.4
+
+- Le notifiche Shopify con lo stesso contenuto ma argomento diverso, come creazione, aggiornamento e pagamento dello stesso ordine, vengono tutte accettate. Prima la seconda notifica veniva rifiutata e Shopify la ritentava più volte, segnalando un alto tasso di errori.
+
 ## 1.6.3
 
 - Un collegamento manuale confermato fra una fattura Aruba e un ordine eBay insegna l’identità fiscale del cliente: le fatture future dello stesso cliente vengono collegate automaticamente quando XML ufficiale, data e importo coincidono e il candidato è unico.
