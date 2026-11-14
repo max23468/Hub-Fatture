@@ -797,15 +797,28 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ),
       (error) => error instanceof AppError && error.code === "WEBHOOK_SIGNATURE_INVALID",
     );
-    const signedEventId = createHash("sha256").update(webhookBody).digest("hex");
-    assert.equal(
+    await processShopifyWebhook(
+      webhookRequest(
+        "orders/create",
+        "signed-event-altro-argomento",
+        createHmac("sha256", process.env.SHOPIFY_API_SECRET).update(webhookBody).digest("base64"),
+      ),
+      webhookBody,
+    );
+    const payloadSha256 = createHash("sha256").update(webhookBody).digest("hex");
+    assert.deepEqual(
       (
         await getPool().query(
-          "SELECT count(*)::int AS total FROM webhook_events WHERE external_event_id = $1",
-          [signedEventId],
+          `SELECT topic, count(*)::int AS total FROM webhook_events
+           WHERE provider = 'SHOPIFY' AND payload_sha256 = $1
+           GROUP BY topic ORDER BY topic`,
+          [payloadSha256],
         )
-      ).rows[0].total,
-      1,
+      ).rows,
+      [
+        { topic: "ORDERS_CREATE", total: 1 },
+        { topic: "ORDERS_UPDATED", total: 1 },
+      ],
     );
 
     await getPool().query(
@@ -1259,7 +1272,10 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         orders_requested: [1001],
       }),
     );
-    const dataRequestId = createHash("sha256").update(dataRequestBody).digest("hex");
+    const dataRequestId = createHash("sha256")
+      .update("CUSTOMERS_DATA_REQUEST\n")
+      .update(dataRequestBody)
+      .digest("hex");
     const dataRequestSignature = createHmac("sha256", process.env.SHOPIFY_API_SECRET)
       .update(dataRequestBody)
       .digest("base64");
@@ -1494,7 +1510,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     assert.equal(
       providerAudit.rows.at(-1)?.request_id,
-      `shopify-webhook:${createHash("sha256").update(uninstallBody).digest("hex")}`,
+      `shopify-webhook:${createHash("sha256").update("APP_UNINSTALLED\n").update(uninstallBody).digest("hex")}`,
     );
     assert.equal(
       providerAudit.rows.filter((event) => event.action === "PROVIDER_REVOKED").length,
