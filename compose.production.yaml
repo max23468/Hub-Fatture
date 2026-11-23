@@ -125,7 +125,7 @@ services:
     logging: *default-logging
 
   postgres:
-    image: postgres:18.6-bookworm@sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af
+    image: postgres:19.0-bookworm@sha256:f4859caf96de494e38efa69ed703b08a5bbd9605e152e604f2daec8841c87c41
     restart: unless-stopped
     user: "999:999"
     cap_drop: [ALL]
